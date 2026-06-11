@@ -261,8 +261,9 @@ async function fetchRegoloUserInfo() {
     });
     if (!resp.ok) return null;
     const data = await resp.json();
+    const rawSpend = data.user_info?.spend || 0;
     regoloUserInfoCache = {
-      totalTokens: data.user_info?.spend || 0,
+      totalTokens: rawSpend > 0 ? Math.round(rawSpend / REGOLO_AVG_COST_PER_TOKEN) : 0,
       maxBudget: data.user_info?.max_budget || 0,
       budgetResetAt: data.user_info?.budget_reset_at || null,
       email: data.user_info?.user_email || '',
@@ -280,7 +281,8 @@ function getRegoloUsage() {
   const used = regoloUsage.used;
   const percent = Math.min(100, (used / limit) * 100);
   const apiTokens = regoloUserInfoCache?.totalTokens || 0;
-  return { used, limit, percent: Math.round(percent * 10) / 10, totalTokens: apiTokens };
+  const totalTokens = Math.max(used, apiTokens);
+  return { used, limit, percent: Math.round(percent * 10) / 10, totalTokens };
 }
 
 // --- Italian midnight countdown ---
@@ -1845,6 +1847,20 @@ async function startServer(retryPort = null) {
   } catch (e) {
     console.log(`[Warning] API key validation skipped: ${e.message}`);
   }
+
+  // Initialize usage from Regolo API, then keep syncing every 30min
+  async function syncUsageFromApi() {
+    try {
+      const info = await fetchRegoloUserInfo();
+      if (info && info.totalTokens > 0) {
+        regoloUsage.used = info.totalTokens;
+        regoloUsage.totalAllTime = Math.max(regoloUsage.totalAllTime || 0, info.totalTokens);
+        saveRegoloUsage(regoloUsage.used);
+      }
+    } catch (e) { /* silent */ }
+  }
+  await syncUsageFromApi();
+  setInterval(syncUsageFromApi, 30 * 60 * 1000);
 
   setupOpencodeConfig();
 
