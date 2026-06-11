@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RegoloProxy Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --primary-color: #0d6efd;
+      --secondary-color: #6c757d;
+      --success-color: #32CD32;
+      --bs-success: #32CD32;
+      --bs-success-rgb: 50, 205, 50;
+      --danger-color: #dc3545;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 0;
+      background-color: #0d1117;
+    }
+    .dashboard-container {
+      position: relative;
+      z-index: 10;
+      max-width: 1200px;
+      margin: 0 auto;
+      overflow-x: hidden;
+    }
+    .card {
+      position: relative;
+      border: none;
+      border-radius: var(--glass-radius, 12px);
+      margin-bottom: 20px;
+      background: transparent !important;
+    }
+    .glass-panel {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      border-radius: inherit;
+      overflow: hidden;
+    }
+    .glass-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      border-radius: inherit;
+      background-color: rgba(255, 255, 255, 0.04);
+      pointer-events: none;
+    }
+    .card-content {
+      position: relative;
+      z-index: 3;
+      border-radius: inherit;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.22);
+    }
+    .card-header {
+      background: rgba(0, 0, 0, 0.2) !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 14px;
+      color: white;
+      padding: 0.4rem 1.25rem;
+      position: relative;
+      z-index: 4;
+    }
+    .card-body {
+      padding: 0.5rem;
+      position: relative;
+      z-index: 4;
+      backdrop-filter: blur(13px) !important;
+      -webkit-backdrop-filter: blur(13px) !important;
+    }
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+    }
+    .status-online { background-color: var(--success-color); box-shadow: 0 0 10px var(--success-color); }
+    .status-offline { background-color: var(--danger-color); box-shadow: 0 0 10px var(--danger-color); }
+    .status-unknown { background-color: var(--secondary-color); }
+    .token-blurred {
+      filter: blur(5px);
+      transition: filter 0.2s ease;
+    }
+    .token-blurred:hover {
+      filter: blur(0) !important;
+    }
+    .btn-white-bg {
+      background: white;
+      border: 1px solid white;
+      color: #0d1117;
+    }
+    .btn-white-bg:hover {
+      background: rgba(255, 255, 255, 0.85);
+      border-color: white;
+      color: #0d1117;
+    }
+    .btn-outline-action {
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      color: white;
+      background: transparent;
+    }
+    .btn-outline-action:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: white;
+      color: white;
+    }
+    .stats-card {
+      background: transparent;
+      border-radius: 12px;
+      padding: 0;
+      text-align: center;
+      position: relative;
+      z-index: 10;
+      backdrop-filter: blur(13px);
+      -webkit-backdrop-filter: blur(13px);
+    }
+    .stats-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: white;
+    }
+    .stats-label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1050;
+    }
+    .form-label {
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255, 255, 255, 0.9);
+      margin-bottom: 6px;
+    }
+    .form-control, .form-select {
+      display: block;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      padding: 0.375rem 0.75rem;
+      font-size: 1rem;
+      border-radius: 0.375rem;
+    }
+    .form-control:focus, .form-select:focus {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.4);
+      color: white;
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    }
+    .form-control::placeholder {
+      color: rgba(255, 255, 255, 0.6);
+    }
+    .form-select option {
+      background: #1a1d23;
+      color: white;
+    }
+    .text-muted {
+      color: rgba(255, 255, 255, 0.7) !important;
+    }
+    h4, h5, strong, .fw-medium {
+      color: white !important;
+    }
+    small {
+      color: rgba(255, 255, 255, 0.8) !important;
+    }
+    .collapsible-header {
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible-header .toggle-icon {
+      transition: transform 0.2s ease;
+    }
+    .collapsible-header .toggle-icon.collapsed {
+      transform: rotate(-90deg);
+    }
+    .collapse-section {
+      transition: all 0.3s ease;
+    }
+    .collapse-section.collapsed {
+      display: none;
+    }
+    .pool-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .pool-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .pool-name {
+      font-weight: 600;
+      color: #58a6ff;
+      font-size: 0.95rem;
+    }
+    .pool-status {
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    /* --- Model Search Result Cards --- */
+    .model-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .model-card:hover {
+      border-color: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .model-card.already-added {
+      border-color: rgba(50, 205, 50, 0.35);
+      background: rgba(50, 205, 50, 0.06);
+    }
+    .model-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .model-card-id {
+      font-size: 14px;
+      font-weight: 700;
+      color: #58a6ff;
+      word-break: break-all;
+      line-height: 1.3;
+    }
+    .model-card-class {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.45);
+      margin-top: 2px;
+      font-family: monospace;
+    }
+    .model-card-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .model-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.65);
+    }
+    .model-stat i {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+    .model-stat strong {
+      color: rgba(255, 255, 255, 0.9);
+      font-weight: 600;
+    }
+    .model-card-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .model-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .model-badge.gated {
+      background: rgba(255, 193, 7, 0.15);
+      color: #ffc107;
+      border-color: rgba(255, 193, 7, 0.2);
+    }
+    .model-badge.plan-ok {
+      background: rgba(50, 205, 50, 0.12);
+      color: #32CD32;
+      border-color: rgba(50, 205, 50, 0.2);
+    }
+    .model-badge.plan-no {
+      background: rgba(220, 53, 69, 0.12);
+      color: #dc3545;
+      border-color: rgba(220, 53, 69, 0.2);
+    }
+    .search-bar-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .search-bar-row .form-control {
+      font-size: 14px;
+      padding: 8px 14px;
+    }
+    .search-bar-row select {
+      font-size: 13px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      border-radius: 0.375rem;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(255,255,255,0.6)' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 28px;
+    }
+    .search-bar-row select:focus {
+      background-color: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.4);
+      color: white;
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    }
+    .model-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+      opacity: 0.5;
+      user-select: none;
+      transition: all 0.15s ease;
+      margin: 1px;
+      line-height: 1.4;
+    }
+    .model-tag.enabled {
+      border-color: rgba(50, 205, 50, 0.3);
+      background: rgba(50, 205, 50, 0.1);
+      opacity: 1;
+    }
+    .model-tag:hover { opacity: 0.8; }
+    .model-tag.enabled:hover { opacity: 1; }
+    .model-tag-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+    }
+    .model-tag-id {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+      white-space: nowrap;
+      opacity: 0.85;
+    }
+    .model-tag-sep {
+      display: inline-block;
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.35);
+      margin: 0 1px;
+      vertical-align: middle;
+    }
+    .model-tag-row {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0;
+    }
+    .model-tag input[type="checkbox"] {
+      pointer-events: none;
+      transform: scale(0.6);
+      margin: 0 2px 0 0;
+    }
+    .model-family-group {
+      margin-bottom: 6px;
+    }
+    .model-family-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      padding: 2px 0 1px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      margin-bottom: 2px;
+      display: flex;
+      align-items: center;
+    }
+    .model-family-header .badge {
+      font-size: 10px;
+      margin-left: 6px;
+      padding: 0 5px;
+      line-height: 1.4;
+    }
+    .test-chat-card {
+      display: none;
+      margin-top: -10px;
+      margin-bottom: 20px;
+      background: transparent;
+      border: none;
+      border-radius: 12px;
+      overflow: visible;
+    }
+    .test-chat-card.visible { display: block; }
+    .test-chat-header {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+      border-radius: 0;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 12px;
+      color: white;
+      padding: 0.4rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    .test-chat-model-wrap {
+      width: 100%;
+    }
+    .test-chat-model-select {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0.3px;
+      padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+      border-radius: 5px;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 16 16' fill='%23ffffff'><path d='M4 6l4 4 4-4z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 4px center;
+      background-size: 10px;
+    }
+    .test-chat-model-select:focus {
+      outline: 0;
+      background-color: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.35);
+    }
+    .test-chat-model-select option {
+      background: #1a1d23;
+      color: white;
+    }
+    .test-chat-body {
+      padding: 8px;
+      position: relative;
+      z-index: 4;
+      backdrop-filter: blur(13px) !important;
+      -webkit-backdrop-filter: blur(13px) !important;
+    }
+    .test-chat-transcript {
+      height: 200px;
+      box-sizing: border-box;
+      padding: 0;
+      margin-bottom: 8px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+    .test-chat-scroll {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      right: 8px;
+      bottom: 6px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.2) rgba(255,255,255,0.04);
+    }
+    .test-chat-pairs {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+    .test-chat-scroll::-webkit-scrollbar { width: 6px; }
+    .test-chat-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 3px; }
+    .test-chat-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    .test-chat-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+    .test-chat-msg {
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 6px 8px;
+      border-radius: 6px;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    .test-chat-msg-content {
+      max-height: 75px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.2) rgba(255,255,255,0.04);
+    }
+    .test-chat-msg-content::-webkit-scrollbar { width: 6px; }
+    .test-chat-msg-content::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 3px; }
+    .test-chat-msg-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    .test-chat-msg-content::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+    .test-chat-msg.user {
+      background: rgba(50, 205, 50, 0.12);
+      border: 1px solid rgba(50, 205, 50, 0.25);
+      color: rgba(255,255,255,0.95);
+      align-self: flex-end;
+      max-width: 85%;
+      margin-left: auto;
+    }
+    .test-chat-msg.assistant {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.9);
+      align-self: flex-start;
+      max-width: 92%;
+      margin-right: auto;
+    }
+    .test-chat-pair {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+    }
+    .test-chat-pair .test-chat-msg {
+      align-self: auto;
+      margin-left: 0;
+      margin-right: 0;
+      max-width: 100%;
+    }
+    .test-chat-pair .test-chat-msg.user {
+      align-self: flex-end;
+      margin-left: auto;
+      max-width: 85%;
+    }
+    .test-chat-pair .test-chat-msg.assistant {
+      align-self: flex-start;
+      margin-right: auto;
+      max-width: 92%;
+    }
+    .test-chat-msg.assistant.error {
+      background: rgba(220, 53, 69, 0.12);
+      border-color: rgba(220, 53, 69, 0.3);
+      color: rgba(255, 200, 200, 0.95);
+    }
+    .test-chat-msg-role {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 2px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .test-chat-msg-time {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+      text-transform: none;
+      color: rgba(255,255,255,0.4);
+      font-variant-numeric: tabular-nums;
+    }
+    .test-chat-msg.user .test-chat-msg-role { color: rgba(50, 205, 50, 0.7); }
+    .test-chat-empty {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      text-align: center;
+      padding: 20px 8px;
+      font-style: italic;
+    }
+    .test-chat-input-row {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .test-chat-input {
+      flex: 1;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: white;
+      padding: 0.35rem 0.6rem;
+      font-size: 12px;
+      border-radius: 6px;
+      min-width: 0;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    .test-chat-input:focus {
+      outline: 0;
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.35);
+      box-shadow: 0 0 0 0.15rem rgba(102, 126, 234, 0.2);
+    }
+    .test-chat-input::placeholder { color: rgba(255,255,255,0.5); }
+    .test-chat-send {
+      background: rgba(50, 205, 50, 0.2);
+      border: 1px solid rgba(50, 205, 50, 0.5);
+      color: white;
+      padding: 0.35rem 0.7rem;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .test-chat-send:hover:not(:disabled) {
+      background: rgba(50, 205, 50, 0.35);
+      border-color: rgba(50, 205, 50, 0.7);
+    }
+    .test-chat-send:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .test-chat-clear {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: rgba(255,255,255,0.7);
+      padding: 0.35rem 0.55rem;
+      font-size: 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .test-chat-clear:hover { background: rgba(255,255,255,0.08); color: white; }
+    .test-chat-thinking {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      font-style: italic;
+    }
+    .test-chat-thinking .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.6);
+      animation: chatDot 1.2s ease-in-out infinite;
+    }
+    .test-chat-thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+    .test-chat-thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes chatDot {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1.1); }
+    }
+  </style>
+</head>
+<body>
+  <svg style="position:absolute;overflow:hidden;width:0;height:0" color-interpolation-filters="sRGB">
+    <defs id="glass-defs"></defs>
+  </svg>
+
+  <div class="container pt-2">
+  <div class="row justify-content-center">
+  <div class="dashboard-container col-11">
+    <div class="card sticky-top p-0" style="top:0;z-index:100" data-glass>
+      <div class="glass-panel"></div>
+      <div class="card-content px-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <h4 class="mb-0"><i class="bi bi-cloud-lightning me-2"></i>RegoloProxy</h4>
+          </div>
+          <div class="text-end d-flex align-items-center gap-3">
+            <span id="enabledCount" class="badge bg-success" style="font-size:11px;display:none">0 models</span>
+            <div>
+              <span id="statusIndicator" class="status-indicator status-unknown"></span>
+              <span id="statusText" class="fw-medium">Checking...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- USAGE ROW -->
+    <div class="row text-center d-flex align-items-stretch mb-2">
+      <div class="col-4">
+        <div class="stats-card card h-100 d-flex flex-column" data-glass>
+          <div class="glass-panel"></div>
+          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
+            <div class="stats-value" id="usedTokens" style="font-size:20px">0</div>
+            <div class="stats-label" style="font-size:9px">Today's Tokens</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="stats-card card h-100 d-flex flex-column" data-glass>
+          <div class="glass-panel"></div>
+          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
+            <div class="stats-value" id="usagePercent" style="font-size:20px;color:#32CD32">0%</div>
+            <div class="stats-label" style="font-size:9px">Usage of 20M</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px;font-variant-numeric:tabular-nums" id="resetTimer">--</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="stats-card card h-100 d-flex flex-column" data-glass>
+          <div class="glass-panel"></div>
+          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
+            <div class="stats-value" id="totalSpend" style="font-size:20px;color:#58a6ff">0</div>
+            <div class="stats-label" style="font-size:9px">Total Tokens</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px" id="totalTokensAll">lifetime</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-lg-8">
+        <!-- AVAILABLE MODELS -->
+        <div class="card" data-glass data-section="models">
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="card-header collapsible-header d-flex justify-content-between align-items-center" onclick="toggleSection('models')">
+              <span>
+                <i class="bi bi-chevron-down toggle-icon me-1"></i>
+                <i class="bi bi-cpu-fill me-2"></i>Available Models
+              </span>
+              <span class="badge bg-secondary" id="modelCountBadge">0</span>
+            </div>
+            <div class="card-body collapse-section" id="section-models">
+              <div id="modelsContainer"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+
+        <!-- API KEY -->
+        <div class="card" data-glass data-section="tokens">
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="card-header collapsible-header d-flex justify-content-between align-items-center" onclick="toggleSection('tokens')">
+              <span>
+                <i class="bi bi-chevron-down toggle-icon me-1"></i>
+                <i class="bi bi-key-fill me-2"></i>API Key
+              </span>
+              <span class="d-flex align-items-stretch gap-2" style="height:100%">
+                <span class="badge bg-secondary d-flex align-items-center" id="tokenCountBadge">0</span>
+                <button class="btn btn-sm btn-outline-action rounded-0" onclick="event.stopPropagation();openKeysModal()" style="font-size:11px"><i class="bi bi-pencil me-1"></i>Manage</button>
+              </span>
+            </div>
+            <div class="card-body collapse-section collapsed" id="section-tokens">
+              <div id="tokenPoolsContainer"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUICK ACTIONS -->
+        <div class="card" data-glass data-section="actions">
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="card-header collapsible-header" onclick="toggleSection('actions')">
+              <i class="bi bi-chevron-down toggle-icon collapsed me-1"></i>
+              <i class="bi bi-lightning-charge-fill me-2"></i>Quick Actions
+            </div>
+            <div class="card-body collapse-section collapsed" id="section-actions">
+              <div class="d-grid gap-2">
+                <button class="btn btn-outline-action" onclick="checkHealth()"><i class="bi bi-activity me-2"></i>Check Health</button>
+                <button class="btn btn-outline-action" onclick="testConnection()"><i class="bi bi-wifi me-2"></i>Test Connection</button>
+                <button class="btn btn-outline-action" onclick="openPlatformLoginModal()"><i class="bi bi-person-fill me-2"></i>Platform Login</button>
+                <button class="btn btn-white-bg" onclick="saveConfiguration()"><i class="bi bi-save me-2"></i>Save Configuration</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TEST CHAT -->
+        <div class="card test-chat-card" id="testChatCard" data-glass>
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="test-chat-header">
+              <span><i class="bi bi-chat-dots-fill me-2"></i>Test Chat</span>
+              <button class="test-chat-clear" id="testChatClearBtn" onclick="clearTestChat()" title="Clear conversation"><i class="bi bi-trash3"></i></button>
+            </div>
+            <div class="test-chat-body">
+              <div class="test-chat-model-wrap mb-2" style="width:100%;max-width:none">
+                <select class="test-chat-model-select" id="testChatModelSelect" style="width:100%;font-size:11px;padding:0.3rem 1.6rem 0.3rem 0.5rem" onchange="updateTestChatEmptyText()"></select>
+              </div>
+              <div class="test-chat-transcript" id="testChatTranscript">
+                <div class="test-chat-scroll" id="testChatScroll">
+                  <div class="test-chat-pairs" id="testChatPairs">
+                    <div class="test-chat-empty" id="testChatEmpty">Select a model and ask anything to test.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="test-chat-input-row">
+                <input type="text" class="test-chat-input" id="testChatInput" placeholder="Type a message..." maxlength="2000" autocomplete="off">
+                <button class="test-chat-send" id="testChatSendBtn" onclick="sendTestChat()"><i class="bi bi-send-fill"></i> Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ENVIRONMENT -->
+        <div class="card" data-glass data-section="env">
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="card-header collapsible-header" onclick="toggleSection('env')">
+              <i class="bi bi-chevron-down toggle-icon collapsed me-1"></i>
+              <i class="bi bi-info-circle-fill me-2"></i>Environment
+            </div>
+            <div class="card-body collapse-section collapsed" id="section-env">
+              <div class="mb-2">
+                <small class="text-muted">Provider</small>
+                <div class="fw-medium">Regolo AI</div>
+              </div>
+              <div class="mb-2">
+                <small class="text-muted">Runtime</small>
+                <div class="fw-medium" id="runtimeInfo">-</div>
+              </div>
+              <div class="mb-2">
+                <small class="text-muted">Started At</small>
+                <div class="fw-medium" id="startedAt">-</div>
+              </div>
+              <div class="mb-2">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="wallpaperToggle" onchange="toggleWallpaper()">
+                  <label class="form-check-label text-muted" for="wallpaperToggle" style="cursor:pointer">Enable Wallpaper</label>
+                </div>
+              </div>
+              <div class="mb-2">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="blurTokensEnv" onchange="toggleBlurTokens(this.checked)">
+                  <label class="form-check-label text-muted" for="blurTokensEnv" style="cursor:pointer">SS Mode</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONFIG -->
+        <div class="card" data-glass data-section="config">
+          <div class="glass-panel"></div>
+          <div class="card-content">
+            <div class="card-header collapsible-header" onclick="toggleSection('config')">
+              <i class="bi bi-chevron-down toggle-icon collapsed me-1"></i>
+              <i class="bi bi-gear-fill me-2"></i>Proxy Configuration
+            </div>
+            <div class="card-body collapse-section collapsed" id="section-config">
+              <form id="configForm">
+                <div class="row">
+                  <div class="col-6 mb-2">
+                    <label class="form-label" style="font-size:10px;margin-bottom:2px">Listen Address</label>
+                    <input type="text" class="form-control form-control-sm" id="listenAddr" value=":8082">
+                  </div>
+                  <div class="col-6 mb-2">
+                    <label class="form-label" style="font-size:10px;margin-bottom:2px">Timeout</label>
+                    <input type="text" class="form-control form-control-sm" id="requestTimeout" value="15m">
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-12 mb-2">
+                    <label class="form-label" style="font-size:10px;margin-bottom:2px">Upstream URL</label>
+                    <input type="url" class="form-control form-control-sm" id="upstreamUrl" value="https://api.regolo.ai/v1">
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+  </div>
+
+  <!-- Keys Modal -->
+  <div class="modal fade" id="keysModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content" style="background:#1a1d23;color:white;border:1px solid rgba(255,255,255,0.1)">
+        <div class="modal-header border-bottom-0">
+          <h5 class="modal-title"><i class="bi bi-key-fill me-2"></i>Manage Keys</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="keysModalBody">
+          <div id="keysList"></div>
+          <hr style="border-color:rgba(255,255,255,0.1)">
+          <div class="mb-3">
+            <label class="form-label">Add New Key</label>
+            <input type="text" class="form-control form-control-sm mb-2" id="newKeyName" placeholder="Key name (e.g. Key 2)">
+            <input type="text" class="form-control form-control-sm mb-2" id="newKey" placeholder="Regolo API token (sk_...)">
+            <button class="btn btn-success btn-sm w-100" onclick="addKey()"><i class="bi bi-plus-circle me-1"></i>Add Key</button>
+          </div>
+          <div class="mb-3">
+            <button class="btn btn-outline-action btn-sm w-100" onclick="openPlatformLoginModal()"><i class="bi bi-person-plus me-1"></i>Add Platform Account</button>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Dashboard Session Cookie</label>
+            <input type="text" class="form-control form-control-sm mb-2" id="dashboardCookieInput" placeholder="Paste token cookie from dashboard.regolo.ai">
+            <button class="btn btn-outline-action btn-sm w-100" onclick="saveDashboardCookie()"><i class="bi bi-cookie me-1"></i>Save Cookie &amp; Fetch Spend</button>
+            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">
+              Open DevTools → Application → Cookies → dashboard.regolo.ai → copy "token" value
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-top-0">
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Platform Login Modal -->
+  <div class="modal fade" id="platformLoginModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content" style="background:#1a1d23;color:white;border:1px solid rgba(255,255,255,0.1)">
+        <div class="modal-header border-bottom-0">
+          <h5 class="modal-title"><i class="bi bi-person-fill me-2"></i>Platform Login</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" style="font-size:12px">E-Mail / username</label>
+            <input type="text" class="form-control form-control-sm" id="platLoginUsername" placeholder="email@example.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" style="font-size:12px">Password</label>
+            <input type="password" class="form-control form-control-sm" id="platLoginPassword" placeholder="password">
+          </div>
+          <div id="platLoginStatus" style="display:none" class="mb-2"></div>
+        </div>
+        <div class="modal-footer border-top-0">
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-success btn-sm" onclick="savePlatformLogin()"><i class="bi bi-check-circle me-1"></i>Save & Login</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logout Confirmation Modal -->
+  <div class="modal fade" id="logoutConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content" style="background:#1a1d23;color:white;border:1px solid rgba(255,255,255,0.1)">
+        <div class="modal-header border-bottom-0">
+          <h5 class="modal-title"><i class="bi bi-box-arrow-right me-2"></i>Logout</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-0" style="font-size:13px">Log out from your Regolo account?</p>
+        </div>
+        <div class="modal-footer border-top-0">
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmLogout()"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const SURFACE_FNS = {
+      convex_squircle: (x) => Math.pow(1 - Math.pow(1 - x, 4), 0.25),
+    };
+
+    function calculateRefractionProfile(glassThickness, bezelWidth, heightFn, ior, samples) {
+      samples = samples || 128;
+      const eta = 1 / ior;
+      function refract(nx, ny) {
+        const dot = ny;
+        const k = 1 - eta * eta * (1 - dot * dot);
+        if (k < 0) return null;
+        const sq = Math.sqrt(k);
+        return [-(eta * dot + sq) * nx, eta - (eta * dot + sq) * ny];
+      }
+      const profile = new Float64Array(samples);
+      for (let i = 0; i < samples; i++) {
+        const x = i / samples;
+        const y = heightFn(x);
+        const dx = x < 1 ? 0.0001 : -0.0001;
+        const y2 = heightFn(x + dx);
+        const deriv = (y2 - y) / dx;
+        const mag = Math.sqrt(deriv * deriv + 1);
+        const ref = refract(-deriv / mag, -1 / mag);
+        if (!ref) { profile[i] = 0; continue; }
+        profile[i] = ref[0] * ((y * bezelWidth + glassThickness) / ref[1]);
+      }
+      return profile;
+    }
+
+    function generateDisplacementMap(w, h, radius, bezelWidth, profile, maxDisp) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) { d[i] = 128; d[i+1] = 128; d[i+2] = 0; d[i+3] = 255; }
+      const r = radius, rSq = r*r, r1Sq = (r+1)**2;
+      const rBSq = Math.max(r - bezelWidth, 0)**2;
+      const wB = w - r*2, hB = h - r*2, S = profile.length;
+      for (let y1 = 0; y1 < h; y1++) {
+        for (let x1 = 0; x1 < w; x1++) {
+          const x = x1 < r ? x1 - r : x1 >= w - r ? x1 - r - wB : 0;
+          const y = y1 < r ? y1 - r : y1 >= h - r ? y1 - r - hB : 0;
+          const dSq = x*x + y*y;
+          if (dSq > r1Sq || dSq < rBSq) continue;
+          const dist = Math.sqrt(dSq);
+          const fromSide = r - dist;
+          const op = dSq < rSq ? 1 : 1 - (dist - Math.sqrt(rSq)) / (Math.sqrt(r1Sq) - Math.sqrt(rSq));
+          if (op <= 0 || dist === 0) continue;
+          const cos = x / dist, sin = y / dist;
+          const bi = Math.min(((fromSide / bezelWidth) * S) | 0, S - 1);
+          const disp = profile[bi] || 0;
+          const dX = (-cos * disp) / maxDisp, dY = (-sin * disp) / maxDisp;
+          const idx = (y1 * w + x1) * 4;
+          d[idx] = (128 + dX * 127 * op + 0.5) | 0;
+          d[idx+1] = (128 + dY * 127 * op + 0.5) | 0;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return c.toDataURL();
+    }
+
+    function generateSpecularMap(w, h, radius, bezelWidth, angle) {
+      angle = angle != null ? angle : Math.PI / 3;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      const d = img.data; d.fill(0);
+      const r = radius, rSq = r*r, r1Sq = (r+1)**2;
+      const rBSq = Math.max(r - bezelWidth, 0)**2;
+      const wB = w - r*2, hB = h - r*2;
+      const sv = [Math.cos(angle), Math.sin(angle)];
+      for (let y1 = 0; y1 < h; y1++) {
+        for (let x1 = 0; x1 < w; x1++) {
+          const x = x1 < r ? x1 - r : x1 >= w - r ? x1 - r - wB : 0;
+          const y = y1 < r ? y1 - r : y1 >= h - r ? y1 - r - hB : 0;
+          const dSq = x*x + y*y;
+          if (dSq > r1Sq || dSq < rBSq) continue;
+          const dist = Math.sqrt(dSq);
+          const fromSide = r - dist;
+          const op = dSq < rSq ? 1 : 1 - (dist - Math.sqrt(rSq)) / (Math.sqrt(r1Sq) - Math.sqrt(rSq));
+          if (op <= 0 || dist === 0) continue;
+          const cos = x / dist, sin = -y / dist;
+          const dot = Math.abs(cos * sv[0] + sin * sv[1]);
+          const edge = Math.sqrt(Math.max(0, 1 - (1 - fromSide)**2));
+          const coeff = dot * edge;
+          const col = (255 * coeff) | 0;
+          const alpha = (col * coeff * op) | 0;
+          const idx = (y1 * w + x1) * 4;
+          d[idx] = col; d[idx+1] = col; d[idx+2] = col; d[idx+3] = alpha;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return c.toDataURL();
+    }
+
+    function initLiquidGlass() {
+      const cards = document.querySelectorAll('[data-glass]');
+      const defs = document.getElementById('glass-defs');
+      defs.innerHTML = '';
+      cards.forEach(c => {
+        const p = c.querySelector('.glass-panel');
+        if (p) { p.style.backdropFilter = ''; p.style.webkitBackdropFilter = ''; }
+      });
+      let filterIndex = 0;
+      cards.forEach(card => {
+        const panel = card.querySelector('.glass-panel');
+        if (!panel) return;
+        requestAnimationFrame(() => {
+          const rect = card.getBoundingClientRect();
+          if (rect.width < 2 || rect.height < 2) return;
+          const w = Math.round(rect.width);
+          const h = Math.round(rect.height);
+          const radius = 12, bezelW = 30, glassThick = 60, ior = 2.5;
+          const blurAmt = 0.3, specOpacity = 0.5, specSat = 4;
+          const heightFn = SURFACE_FNS.convex_squircle;
+          const profile = calculateRefractionProfile(glassThick, bezelW, heightFn, ior, 128);
+          const maxDisp = Math.max(...Array.from(profile).map(Math.abs)) || 1;
+          const dispUrl = generateDisplacementMap(w, h, radius, bezelW, profile, maxDisp);
+          const specUrl = generateSpecularMap(w, h, radius, bezelW * 2.5);
+          const scale = maxDisp * 1.0;
+          const filterId = 'lg-' + (filterIndex++);
+          const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+          filter.setAttribute('id', filterId);
+          filter.setAttribute('x', '-20%');
+          filter.setAttribute('y', '-20%');
+          filter.setAttribute('width', '140%');
+          filter.setAttribute('height', '140%');
+          filter.innerHTML = `
+            <feGaussianBlur in="SourceGraphic" stdDeviation="${blurAmt}" result="blurred_source" />
+            <feImage href="${dispUrl}" x="0" y="0" width="${w}" height="${h}" result="disp_map" />
+            <feDisplacementMap in="blurred_source" in2="disp_map" scale="${scale}" xChannelSelector="R" yChannelSelector="G" result="displaced" />
+            <feColorMatrix in="displaced" type="saturate" values="${specSat}" result="displaced_sat" />
+            <feImage href="${specUrl}" x="0" y="0" width="${w}" height="${h}" result="spec_layer" />
+            <feComposite in="displaced_sat" in2="spec_layer" operator="in" result="spec_masked" />
+            <feComponentTransfer in="spec_layer" result="spec_faded"><feFuncA type="linear" slope="${specOpacity}" /></feComponentTransfer>
+            <feBlend in="spec_masked" in2="displaced" mode="normal" result="with_sat" />
+            <feBlend in="spec_faded" in2="with_sat" mode="normal" />
+          `;
+          defs.appendChild(filter);
+          panel.style.backdropFilter = `url(#${filterId})`;
+          panel.style.webkitBackdropFilter = `url(#${filterId})`;
+          void panel.offsetHeight;
+        });
+      });
+      setTimeout(() => {
+        cards.forEach(card => {
+          const p = card.querySelector('.glass-panel');
+          if (!p) return;
+          p.style.visibility = 'hidden';
+          void p.offsetHeight;
+          p.style.visibility = '';
+        });
+      }, 100);
+    }
+
+    let proxyData = null;
+    let config = {};
+    let blurTokensEnabled = false;
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast align-items-center text-white bg-${type} border-0 show`;
+      toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+      document.getElementById('toastContainer').appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function fetchBingWallpaper() {
+      if (config && config.enableWallpaper === false) {
+        document.body.style.backgroundImage = 'none';
+        document.body.style.backgroundColor = '#0d1117';
+        return;
+      }
+      document.body.style.backgroundImage = 'url(/api/bg)';
+      document.body.style.backgroundRepeat = 'no-repeat';
+      document.body.style.backgroundPosition = 'center';
+      document.body.style.backgroundSize = 'cover';
+      document.body.style.backgroundAttachment = 'fixed';
+      document.body.style.backgroundColor = '#0d1117';
+      await new Promise(resolve => {
+        const img = new Image();
+        img.onload = resolve;
+        img.onerror = resolve;
+        img.src = '/api/bg';
+      });
+    }
+
+    async function toggleWallpaper() {
+      const checked = document.getElementById('wallpaperToggle').checked;
+      config.enableWallpaper = checked;
+      fetchBingWallpaper();
+      try {
+        const resp = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enableWallpaper: checked }) });
+        const data = await resp.json();
+        if (data.success) { showToast('Wallpaper setting saved', 'info'); config = data.config; }
+      } catch (e) {}
+    }
+
+    function toggleBlurTokens(checked) {
+      blurTokensEnabled = checked;
+      renderTokenPools();
+    }
+
+    // --- Models ---
+    let models = [];
+    let modelDisplayNames = {};
+
+    function detectFamily(id) {
+      const knownFamilies = ['llama', 'qwen', 'deepseek', 'mistral', 'gemma', 'phi', 'yi', 'minimax', 'apertus', 'brick', 'gpt', 'r1'];
+      const lower = id.toLowerCase();
+      for (const fam of knownFamilies) {
+        if (lower.startsWith(fam) || lower.includes('-' + fam) || lower.includes(fam + '-') || lower.includes(fam + '.')) {
+          return fam;
+        }
+      }
+      // Extract first part before number/version
+      const m = lower.match(/^([a-z][a-z0-9]*?)(?:\d|$|-)/);
+      if (m && m[1].length >= 2) return m[1];
+      return 'other';
+    }
+
+    function renderModels(enabledSet) {
+      const container = document.getElementById('modelsContainer');
+      const badge = document.getElementById('modelCountBadge');
+      if (!models || models.length === 0) {
+        badge.textContent = '0';
+        container.innerHTML = '<div class="text-center py-3"><i class="bi bi-info-circle" style="font-size:24px;color:rgba(255,255,255,0.4)"></i><p class="mt-2 text-muted">No models available. Check your API key.</p></div>';
+        setTestChatVisible(false);
+        return;
+      }
+      setTestChatVisible(true);
+      badge.textContent = models.length;
+      const enabled = new Set(enabledSet || []);
+      const groups = {};
+      models.forEach((model, idx) => {
+        const family = detectFamily(model);
+        if (!groups[family]) groups[family] = [];
+        groups[family].push({ model, idx });
+      });
+      const familyOrder = Object.keys(groups).sort();
+      container.innerHTML = familyOrder.map(family => {
+        const items = groups[family];
+        return `<div class="model-family-group"><div class="model-family-header">${escapeHtml(family)} <span class="badge bg-secondary">${items.length}</span></div><div style="display:flex;flex-wrap:wrap;gap:3px">${items.map(({ model, idx }) => {
+          const isEnabled = enabled.has(model);
+          const displayName = modelDisplayNames[model] || model;
+          const sep = '<span class="model-tag-sep"></span>';
+          return `<div class="model-tag${isEnabled ? ' enabled' : ''}" onclick="toggleModel(${idx})" id="model-${idx}"><input type="checkbox" class="form-check-input"${isEnabled ? ' checked' : ''}><div class="model-tag-row"><span class="model-tag-name">${escapeHtml(displayName)}</span>${sep}<span class="model-tag-id" title="${escapeHtml(model)}">${escapeHtml(model)}</span></div></div>`;
+        }).join('')}</div></div>`;
+      }).join('');
+      // Update test chat model select
+      updateTestChatModels(enabled);
+    }
+
+    function updateTestChatModels(enabledSet) {
+      const sel = document.getElementById('testChatModelSelect');
+      const current = sel.value;
+      sel.innerHTML = '';
+      if (!enabledSet) {
+        enabledSet = new Set(document.querySelectorAll('#modelsContainer .model-tag.enabled').length > 0
+          ? models.filter((_, i) => document.getElementById(`model-${i}`)?.classList.contains('enabled'))
+          : []);
+      }
+      const enabledList = models.filter(m => enabledSet.has(m));
+      if (enabledList.length === 0) {
+        sel.innerHTML = '<option value="">No enabled models</option>';
+        return;
+      }
+      enabledList.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = modelDisplayNames[m] || m;
+        sel.appendChild(opt);
+      });
+      if (current && enabledList.includes(current)) sel.value = current;
+      else sel.value = enabledList[0];
+      updateTestChatEmptyText();
+    }
+
+    function updateTestChatEmptyText() {
+      // No-op: empty text is static now
+    }
+
+    async function toggleModel(idx) {
+      const tag = document.getElementById(`model-${idx}`);
+      const checkbox = tag.querySelector('input[type="checkbox"]');
+      const isEnabled = tag.classList.contains('enabled');
+      if (isEnabled) { tag.classList.remove('enabled'); checkbox.checked = false; }
+      else { tag.classList.add('enabled'); checkbox.checked = true; }
+      const enabledModels = models.filter((_, i) => document.getElementById(`model-${i}`).classList.contains('enabled'));
+      const model = models[idx];
+      const displayName = modelDisplayNames[model] || model;
+      showToast(`${displayName} ${isEnabled ? 'disabled' : 'enabled'}`, 'info');
+      try {
+        const resp = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabledModels }) });
+        const data = await resp.json();
+        if (!data.success) showToast('Failed to save model settings', 'danger');
+      } catch (e) { showToast('Failed to save model settings', 'danger'); }
+      updateTestChatModels(new Set(enabledModels));
+    }
+
+    // --- Keys ---
+    let editingIndex = -1;
+    let deleteIndex = -1;
+
+    async function openKeysModal() {
+      try {
+        const [keysResp, userResp] = await Promise.all([
+          fetch('/api/keys'),
+          fetch('/api/regolo/user')
+        ]);
+        const keysData = await keysResp.json();
+        const userData = await userResp.json();
+        const keys = keysData.keys || [];
+        document.getElementById('tokenCountBadge').textContent = keys.length;
+        editingIndex = -1;
+        deleteIndex = -1;
+        renderKeysList(keys, userData);
+        const modal = new bootstrap.Modal(document.getElementById('keysModal'));
+        modal.show();
+      } catch (e) { showToast('Failed to load keys', 'danger'); }
+    }
+
+    function renderKeysList(keys, userData) {
+      const container = document.getElementById('keysList');
+      const blurClass = blurTokensEnabled ? 'token-blurred' : '';
+      const isLoggedIn = userData && userData.loggedIn;
+      const email = isLoggedIn ? (userData.email || userData.username || '') : '';
+      const lastLogin = isLoggedIn ? (userData.lastLogin || '') : '';
+      const lastLoginFmt = lastLogin ? new Date(lastLogin).toLocaleString() : '';
+      // Platform account card (AGNES style)
+      let usersHtml = '';
+      if (isLoggedIn) {
+        usersHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+          <div class="d-flex justify-content-between align-items-center" style="margin-bottom:4px">
+            <span style="color:rgba(255,255,255,0.5)"><i class="bi bi-person-circle me-1"></i>Platform Account</span>
+            <div>
+              <span style="color:#32CD32;font-size:0.7rem;margin-right:8px"><i class="bi bi-check-circle-fill"></i> Online</span>
+              <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.7rem;padding:2px 8px" onclick="confirmLogout();bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide()"><i class="bi bi-box-arrow-right me-1"></i>Logout &amp; Remove</button>
+            </div>
+          </div>
+          <div>User: <span class="${blurClass}">${escapeHtml(email)}</span></div>
+          <div>Email: <span>${escapeHtml(email)}</span></div>
+          <div>Status: <span style="color:#32CD32">Active</span></div>
+          ${lastLoginFmt ? `<div>Last login: <span>${escapeHtml(lastLoginFmt)}</span></div>` : ''}
+        </div>`;
+      } else {
+        usersHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="text-muted"><i class="bi bi-person me-1"></i>No platform account</span>
+            <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.7rem;padding:2px 8px" onclick="bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide();setTimeout(openPlatformLoginModal,300)"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
+          </div>
+        </div>`;
+      }
+      const realKeys = (keys || []).filter(k => k.key);
+      if (!realKeys.length) {
+        container.innerHTML = usersHtml + '<p class="text-muted text-center py-3">No API keys configured.</p>';
+        return;
+      }
+      container.innerHTML = usersHtml + realKeys.map((k, i) => {
+        const origIdx = keys.indexOf(k);
+        if (editingIndex === origIdx) {
+          return `<div class="pool-card">
+            <div class="mb-2"><label class="form-label" style="font-size:10px">Name</label><input type="text" class="form-control form-control-sm" id="editKeyName" value="${escapeHtml(k.name || '')}"></div>
+            <div class="mb-2"><label class="form-label" style="font-size:10px">Key</label><input type="text" class="form-control form-control-sm" id="editKey" value="${escapeHtml(k.key || '')}"></div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-success" onclick="saveEditKey(${origIdx})"><i class="bi bi-check me-1"></i>Save</button>
+              <button class="btn btn-sm btn-secondary" onclick="cancelEditKey()"><i class="bi bi-x me-1"></i>Cancel</button>
+            </div>
+          </div>`;
+        }
+        const maskedToken = k.key ? k.key.substring(0, 4) + '...' + k.key.substring(k.key.length - 4) : '';
+        const isDeleting = deleteIndex === origIdx;
+        return `<div class="pool-card">
+          <div class="pool-header">
+            <div class="pool-name">${escapeHtml(k.name || 'Unnamed')}</div>
+            <div>
+              <button class="btn btn-sm btn-outline-action me-1" onclick="startEditKey(${origIdx})" title="Edit"><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none" onclick="startDeleteKey(${origIdx})" title="Delete"><i class="bi bi-trash"></i></button>
+            </div>
+          </div>
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.7)">
+            <div>Key: <span class="${blurClass}" title="${escapeHtml(k.key)}">${maskedToken}</span></div>
+            <div>User: <span class="${blurClass}">${isLoggedIn ? escapeHtml(email) : 'None'}</span></div>
+          </div>
+          ${isDeleting ? `<div class="mt-2 d-flex gap-2 align-items-center" style="font-size:0.85rem;color:#dc3545"><i class="bi bi-exclamation-triangle"></i> Delete this key?</div>
+            <div class="d-flex gap-2 mt-1">
+              <button class="btn btn-sm" style="background:#dc3545;color:white;border:none" onclick="confirmDeleteKey(${origIdx})"><i class="bi bi-trash me-1"></i>Delete</button>
+              <button class="btn btn-sm btn-secondary" onclick="cancelDeleteKey()">Cancel</button>
+            </div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    async function addKey() {
+      const name = document.getElementById('newKeyName').value.trim() || ('Key ' + (document.querySelectorAll('#keysList .pool-card').length + 1));
+      const key = document.getElementById('newKey').value.trim();
+      if (!key) { showToast('Key is required', 'warning'); return; }
+      const platformUser = platformUserStatus.loggedIn ? platformUserStatus.email : '';
+      try {
+        const r = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', name, key, platformUser }) });
+        const data = await r.json();
+        if (data.success) {
+          document.getElementById('newKeyName').value = '';
+          document.getElementById('newKey').value = '';
+          _reloadKeysListCb();
+          showToast('Key added', 'success');
+          loadConfiguration();
+        } else { showToast('Failed: ' + data.error, 'danger'); }
+      } catch (e) { showToast('Failed to add key', 'danger'); }
+    }
+
+    function _reloadKeysListCb() {
+      Promise.all([fetch('/api/keys'), fetch('/api/regolo/user')])
+        .then(([a,b]) => Promise.all([a.json(), b.json()]))
+        .then(([kd, ud]) => { renderKeysList(kd.keys, ud); });
+    }
+
+    function startEditKey(i) { editingIndex = i; deleteIndex = -1; _reloadKeysListCb(); }
+    function cancelEditKey() { editingIndex = -1; _reloadKeysListCb(); }
+
+    async function saveEditKey(i) {
+      const name = document.getElementById('editKeyName').value.trim();
+      const key = document.getElementById('editKey').value.trim();
+      try {
+        const r = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update', index: i, name, key }) });
+        const data = await r.json();
+        if (data.success) { editingIndex = -1; _reloadKeysListCb(); showToast('Key updated', 'success'); loadConfiguration(); }
+        else showToast('Failed: ' + data.error, 'danger');
+      } catch (e) { showToast('Failed to update key', 'danger'); }
+    }
+
+    function startDeleteKey(i) { deleteIndex = i; editingIndex = -1; _reloadKeysListCb(); }
+    function cancelDeleteKey() { deleteIndex = -1; editingIndex = -1; _reloadKeysListCb(); }
+
+    async function confirmDeleteKey(i) {
+      try {
+        const r = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', index: i }) });
+        const data = await r.json();
+        if (data.success) { deleteIndex = -1; _reloadKeysListCb(); showToast('Key deleted', 'success'); loadConfiguration(); }
+        else showToast('Failed: ' + data.error, 'danger');
+      } catch (e) { showToast('Failed to delete key', 'danger'); }
+    }
+
+    let platformUserStatus = { loggedIn: false, email: '', lastLogin: '' };
+
+    async function fetchPlatformUserStatus() {
+      try {
+        const r = await fetch('/api/regolo/user');
+        platformUserStatus = await r.json();
+      } catch (e) { /* silent */ }
+    }
+
+    function renderTokenPools() {
+      const container = document.getElementById('tokenPoolsContainer');
+      const blurClass = blurTokensEnabled ? 'token-blurred' : '';
+
+      // Platform login card at the top
+      let platformHtml = '';
+      if (platformUserStatus.loggedIn) {
+        const email = platformUserStatus.email || '';
+        const lastLogin = platformUserStatus.lastLogin || '';
+        const lastLoginFmt = lastLogin ? new Date(lastLogin).toLocaleString() : '';
+        platformHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+          <div class="d-flex justify-content-between align-items-center" style="margin-bottom:4px">
+            <span style="color:rgba(255,255,255,0.5);font-size:0.75rem"><i class="bi bi-person-circle me-1"></i>Platform Account</span>
+            <span style="color:#32CD32;font-size:0.65rem"><i class="bi bi-check-circle-fill"></i> Online</span>
+          </div>
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.9)">${escapeHtml(email)}</div>
+          ${lastLoginFmt ? `<div style="font-size:0.65rem;color:rgba(255,255,255,0.5)">Last login: ${escapeHtml(lastLoginFmt)}</div>` : ''}
+          <div style="margin-top:4px"><button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.65rem;padding:1px 8px;width:100%" onclick="confirmLogout()"><i class="bi bi-box-arrow-right me-1"></i>Logout</button></div>
+        </div>`;
+      } else {
+        platformHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="text-muted" style="font-size:0.75rem"><i class="bi bi-person me-1"></i>No platform account</span>
+            <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.65rem;padding:1px 8px" onclick="openPlatformLoginModal()"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
+          </div>
+        </div>`;
+      }
+
+      if (!proxyData || !proxyData.token_state || proxyData.token_state.length === 0) {
+        container.innerHTML = platformHtml + '<div class="text-center py-4"><i class="bi bi-key" style="font-size:2rem;color:rgba(255,255,255,0.4)"></i><p class="mt-2 text-muted">No tokens detected</p></div>';
+        return;
+      }
+      document.getElementById('tokenCountBadge').textContent = proxyData.token_state.length;
+      container.innerHTML = platformHtml + proxyData.token_state.map(pool => {
+        const status = pool.status || 'none';
+        const statusClass = status === 'active' ? 'status-online' : 'status-offline';
+        return `<div class="pool-card"><div class="pool-header"><div class="pool-name">${pool.name}</div><div class="pool-status ${statusClass}">${status.charAt(0).toUpperCase() + status.slice(1)}</div></div><div style="font-size:0.8rem;color:rgba(255,255,255,0.7)"><span class="${blurClass}">${pool.token}</span></div></div>`;
+      }).join('');
+    }
+
+    // --- Load Configuration ---
+    async function loadConfiguration() {
+      try {
+        const healthResponse = await fetch('/healthz');
+        proxyData = await healthResponse.json();
+        const configResponse = await fetch('/api/config');
+        const configData = await configResponse.json();
+        if (configData) {
+          config = configData;
+          modelDisplayNames = configData.modelDisplayNames || configData.model_display_names || {};
+          if (document.getElementById('listenAddr')) document.getElementById('listenAddr').value = configData.listenAddr || ':8082';
+          if (document.getElementById('upstreamUrl')) document.getElementById('upstreamUrl').value = configData.upstreamBaseURL || 'https://api.regolo.ai/v1';
+          if (document.getElementById('requestTimeout')) document.getElementById('requestTimeout').value = configData.requestTimeout || '15m';
+          if (document.getElementById('wallpaperToggle')) document.getElementById('wallpaperToggle').checked = configData.enableWallpaper !== false;
+        }
+        // Fetch all available models from Regolo catalog via proxy
+        const searchResp = await fetch('/api/models/search');
+        const searchData = await searchResp.json();
+        models = (searchData.data || []).map(m => m.id);
+        const enabledResp = await fetch('/api/models');
+        const enabledData = await enabledResp.json();
+        const enabledModels = enabledData.models || [];
+        renderModels(enabledModels);
+        renderTokenPools();
+        updateStats();
+      } catch (error) {
+        showToast('Failed to load configuration', 'danger');
+      }
+    }
+
+    // --- Test Chat ---
+    let testChatBusy = false;
+    let testChatHistory = [];
+
+    function setTestChatVisible(show) {
+      const card = document.getElementById('testChatCard');
+      if (card) card.classList.toggle('visible', show);
+    }
+
+    function setTestChatBusy(busy) {
+      testChatBusy = busy;
+      const sendBtn = document.getElementById('testChatSendBtn');
+      if (sendBtn) sendBtn.disabled = busy;
+    }
+
+    // --- Regolo Platform Login ---
+    let regoloLoggedIn = false;
+    let regoloEmail = '';
+
+    function openPlatformLoginModal() {
+      const modal = new bootstrap.Modal(document.getElementById('platformLoginModal'));
+      document.getElementById('platLoginUsername').value = '';
+      document.getElementById('platLoginPassword').value = '';
+      document.getElementById('platLoginStatus').style.display = 'none';
+      modal.show();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && document.getElementById('platformLoginModal')?.classList.contains('show')) {
+        e.preventDefault();
+        savePlatformLogin();
+      }
+    });
+
+    async function savePlatformLogin() {
+      const username = document.getElementById('platLoginUsername').value.trim();
+      const password = document.getElementById('platLoginPassword').value;
+      if (!username || !password) { showToast('Username and password required', 'warning'); return; }
+      const statusEl = document.getElementById('platLoginStatus');
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '<span class="text-info">Logging in...</span>';
+      try {
+        const resp = await fetch('/api/regolo/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          regoloLoggedIn = true;
+          regoloEmail = data.email || username;
+          platformUserStatus = { loggedIn: true, email: data.email || username, lastLogin: data.lastLogin || '' };
+          statusEl.innerHTML = `<span class="text-success">Logged in as ${escapeHtml(data.email)}</span>`;
+          setTimeout(() => {
+            bootstrap.Modal.getInstance(document.getElementById('platformLoginModal'))?.hide();
+            fetchUsage();
+            renderTokenPools();
+          }, 800);
+          showToast('Platform login successful', 'success');
+        } else {
+          statusEl.innerHTML = `<span class="text-danger">Login failed: ${escapeHtml(data.error || 'Unknown error')}</span>`;
+        }
+      } catch (e) {
+        statusEl.innerHTML = `<span class="text-danger">Error: ${escapeHtml(e.message)}</span>`;
+      }
+    }
+
+    function openLogoutConfirm() {
+      const modal = new bootstrap.Modal(document.getElementById('logoutConfirmModal'));
+      modal.show();
+    }
+
+    async function confirmLogout() {
+      try {
+        await fetch('/api/regolo/logout', { method: 'POST' });
+        regoloLoggedIn = false;
+        regoloEmail = '';
+        platformUserStatus = { loggedIn: false, email: '', lastLogin: '' };
+        bootstrap.Modal.getInstance(document.getElementById('logoutConfirmModal'))?.hide();
+        bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide();
+        showToast('Logged out', 'info');
+        fetchUsage();
+        renderTokenPools();
+      } catch (e) { showToast('Logout failed', 'danger'); }
+    }
+
+    // --- Usage from Server ---
+    async function fetchUsage() {
+      try {
+        const resp = await fetch('/api/regolo/usage');
+        const data = await resp.json();
+        const el = document.getElementById('usedTokens');
+        if (el) el.textContent = (data.used || 0).toLocaleString();
+        const pctEl = document.getElementById('usagePercent');
+        if (pctEl) {
+          const pct = data.percent || 0;
+          pctEl.textContent = pct.toFixed(1) + '%';
+          pctEl.style.color = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : '#32CD32';
+        }
+        const timerEl = document.getElementById('resetTimer');
+        if (timerEl && data.countdown) {
+          timerEl.textContent = 'Reset in ' + data.countdown;
+        }
+        const spendEl = document.getElementById('totalSpend');
+        if (spendEl && data.totalTokens !== undefined) {
+          if (data.totalTokens > 0) {
+            spendEl.textContent = data.totalTokens.toLocaleString(undefined, {maximumFractionDigits: 4});
+            spendEl.parentElement.parentElement.style.display = '';
+          } else {
+            spendEl.parentElement.parentElement.style.display = 'none';
+          }
+        }
+        const totalEl = document.getElementById('totalTokensAll');
+        if (totalEl && data.totalTokens !== undefined) {
+          totalEl.style.display = data.totalTokens > 0 ? '' : 'none';
+        }
+        regoloLoggedIn = data.loggedIn || false;
+        regoloEmail = data.email || '';
+        platformUserStatus = { loggedIn: regoloLoggedIn, email: regoloEmail, lastLogin: data.lastLogin || '' };
+        renderTokenPools();
+        // Update platform login button text
+        const loginBtn = Array.from(document.querySelectorAll('.btn-outline-action'))
+          .find(b => b.textContent.includes('Platform Login') || b.textContent.includes('@'));
+        if (loginBtn) {
+          if (regoloLoggedIn) {
+            loginBtn.innerHTML = `<i class="bi bi-person-check me-2"></i>${escapeHtml(regoloEmail)}`;
+            loginBtn.onclick = openLogoutConfirm;
+          } else {
+            loginBtn.innerHTML = '<i class="bi bi-person-fill me-2"></i>Platform Login';
+            loginBtn.onclick = openPlatformLoginModal;
+          }
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    // --- Dashboard Cookie / Real Spend ---
+    async function saveDashboardCookie() {
+      const cookie = document.getElementById('dashboardCookieInput').value.trim();
+      if (!cookie) { showToast('Cookie value required', 'warning'); return; }
+      try {
+        const r = await fetch('/api/regolo/dashboard-cookie', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookie })
+        });
+        const data = await r.json();
+        if (data.success) {
+          showToast('Cookie saved! Fetching spend data...', 'success');
+          fetchDashboardData();
+        } else { showToast('Failed: ' + (data.error || ''), 'danger'); }
+      } catch (e) { showToast('Error saving cookie', 'danger'); }
+    }
+
+    async function fetchDashboardData() {
+      try {
+        const r = await fetch('/api/regolo/dashboard-data');
+        const data = await r.json();
+        if (data.loggedIn && data.spend !== null) {
+          const spendEl = document.getElementById('totalSpend');
+          if (spendEl) spendEl.textContent = '$' + data.spend.toFixed(4);
+          const totalEl = document.getElementById('totalTokensAll');
+          if (totalEl && data.totalAmount) totalEl.textContent = '$' + data.totalAmount.toFixed(2) + ' total paid';
+          showToast('Dashboard spend: $' + data.spend.toFixed(4), 'success');
+        } else if (data.error) {
+          showToast('Dashboard: ' + data.error, 'warning');
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    // Start periodic countdown update (client-side tick)
+    let usageInterval = setInterval(fetchUsage, 5000);
+    // Also update countdown display locally for smooth ticking
+    setInterval(() => {
+      const timerEl = document.getElementById('resetTimer');
+      if (!timerEl || !timerEl.textContent.startsWith('Reset in')) return;
+      // Parse the current countdown
+      const match = timerEl.textContent.match(/(\d{2}):(\d{2}):(\d{2})/);
+      if (match) {
+        let h = parseInt(match[1]), m = parseInt(match[2]), s = parseInt(match[3]);
+        s--;
+        if (s < 0) { s = 59; m--; }
+        if (m < 0) { m = 59; h--; }
+        if (h < 0) { fetchUsage(); return; }
+        timerEl.textContent = `Reset in ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      }
+    }, 1000);
+
+    async function sendTestChat() {
+      if (testChatBusy) return;
+      const input = document.getElementById('testChatInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      const model = document.getElementById('testChatModelSelect').value;
+      if (!model) { showToast('No model selected', 'warning'); return; }
+
+      input.value = '';
+      setTestChatBusy(true);
+      const pairs = document.getElementById('testChatPairs');
+      const emptyEl = document.getElementById('testChatEmpty');
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      // User message
+      const userDiv = document.createElement('div');
+      userDiv.className = 'test-chat-msg user';
+      userDiv.innerHTML = `<div class="test-chat-msg-role"><span>You</span><span class="test-chat-msg-time">${new Date().toLocaleTimeString()}</span></div><div class="test-chat-msg-content">${escapeHtml(msg)}</div>`;
+      pairs.appendChild(userDiv);
+
+      // Thinking indicator
+      const thinkDiv = document.createElement('div');
+      thinkDiv.className = 'test-chat-msg assistant';
+      thinkDiv.id = 'testChatThinking';
+      thinkDiv.innerHTML = '<div class="test-chat-thinking"><span>Thinking</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+      pairs.appendChild(thinkDiv);
+      const scroll = document.getElementById('testChatScroll');
+      scroll.scrollTop = scroll.scrollHeight;
+
+      try {
+        const resp = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            messages: [...testChatHistory, { role: 'user', content: msg }],
+            stream: false,
+          }),
+        });
+        const thinkEl = document.getElementById('testChatThinking');
+        if (thinkEl) thinkEl.remove();
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `HTTP ${resp.status}`;
+          const errDiv = document.createElement('div');
+          errDiv.className = 'test-chat-msg assistant error';
+          errDiv.innerHTML = `<div class="test-chat-msg-role"><span>Error</span><span class="test-chat-msg-time">${new Date().toLocaleTimeString()}</span></div><div class="test-chat-msg-content">${escapeHtml(errMsg)}</div>`;
+          pairs.appendChild(errDiv);
+        } else {
+          const data = await resp.json();
+          const content = (data.choices?.[0]?.message?.content || '').replace(/^\s+|\s+$/g, '') || '(empty response)';
+          const asstDiv = document.createElement('div');
+          asstDiv.className = 'test-chat-msg assistant';
+          asstDiv.innerHTML = `<div class="test-chat-msg-role"><span>${model}</span><span class="test-chat-msg-time">${new Date().toLocaleTimeString()}</span></div><div class="test-chat-msg-content">${escapeHtml(content)}</div>`;
+          pairs.appendChild(asstDiv);
+          testChatHistory.push({ role: 'user', content: msg.trim() });
+          testChatHistory.push({ role: 'assistant', content: content.replace(/^\s+|\s+$/g, '') });
+          if (testChatHistory.length > 20) testChatHistory.splice(0, 2);
+        }
+      } catch (e) {
+        const thinkEl = document.getElementById('testChatThinking');
+        if (thinkEl) thinkEl.remove();
+        const errDiv = document.createElement('div');
+        errDiv.className = 'test-chat-msg assistant error';
+        errDiv.innerHTML = `<div class="test-chat-msg-role"><span>Error</span><span class="test-chat-msg-time">${new Date().toLocaleTimeString()}</span></div><div class="test-chat-msg-content">${escapeHtml(e.message)}</div>`;
+        pairs.appendChild(errDiv);
+      }
+      setTestChatBusy(false);
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && document.activeElement === document.getElementById('testChatInput')) {
+        e.preventDefault();
+        sendTestChat();
+      }
+    });
+
+    function clearTestChat() {
+      testChatHistory = [];
+      const pairs = document.getElementById('testChatPairs');
+      if (pairs) pairs.innerHTML = '';
+      const emptyEl = document.getElementById('testChatEmpty');
+      if (emptyEl) emptyEl.style.display = '';
+      updateTestChatEmptyText();
+    }
+
+    // --- Health / Connection ---
+    async function checkHealth(silent = false) {
+      try {
+        const response = await fetch('/healthz');
+        const data = await response.json();
+        if (data.ok) {
+          proxyData = data;
+          document.getElementById('statusIndicator').className = 'status-indicator status-online';
+          document.getElementById('statusText').textContent = 'Online';
+          renderTokenPools();
+          updateStats();
+          fetchPlatformUserStatus().then(() => renderTokenPools());
+          if (!silent) showToast('Proxy is healthy', 'success');
+        } else throw new Error('Unhealthy');
+      } catch (error) {
+        document.getElementById('statusIndicator').className = 'status-indicator status-offline';
+        document.getElementById('statusText').textContent = 'Offline';
+        if (!silent) showToast('Proxy health check failed', 'danger');
+      }
+    }
+
+    async function testConnection() {
+      try {
+        const response = await fetch('/v1/models');
+        if (response.ok) {
+          const data = await response.json();
+          showToast(`Connected! ${data.data?.length || 0} models exposed`, 'success');
+        } else throw new Error('Connection failed');
+      } catch (error) { showToast('Connection test failed', 'danger'); }
+    }
+
+    async function saveConfiguration() {
+      const newConfig = {
+        listenAddr: document.getElementById('listenAddr').value,
+        upstreamBaseURL: document.getElementById('upstreamUrl').value,
+        requestTimeout: document.getElementById('requestTimeout').value,
+        enableWallpaper: document.getElementById('wallpaperToggle').checked,
+      };
+      try {
+        const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+        const data = await response.json();
+        if (data.success) { showToast('Configuration saved', 'success'); config = data.config; }
+        else showToast('Failed: ' + data.error, 'danger');
+      } catch (error) { showToast('Failed to save configuration', 'danger'); }
+    }
+
+    function updateStats() {
+      if (!proxyData) return;
+      if (proxyData.runtime) document.getElementById('runtimeInfo').textContent = proxyData.runtime + ' v' + proxyData.runtime_version;
+    }
+
+    function toggleSection(name) {
+      const body = document.getElementById('section-' + name);
+      const card = body.closest('[data-section]');
+      const icon = card.querySelector('.toggle-icon');
+      body.classList.toggle('collapsed');
+      icon.classList.toggle('collapsed');
+      setTimeout(() => initLiquidGlass(), 50);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
+    // Initialize usage from server
+    fetchUsage();
+    fetchPlatformUserStatus();
+
+    Promise.all([
+      loadConfiguration().then(() => fetchBingWallpaper()),
+      checkHealth(),
+    ]).then(() => {
+      initLiquidGlass();
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 1000);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 3000);
+    });
+    setInterval(() => checkHealth(true), 15000);
+    let resizeTimer;
+    window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(initLiquidGlass, 150); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "regolo-proxy",
+  "version": "1.0.0",
+  "description": "OpenAI-compatible proxy server for Regolo AI",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js",
+    "dev": "node --watch proxy.js",
+    "start:bun": "bun run proxy.js"
+  },
+  "keywords": [
+    "regolo-proxy",
+    "regolo",
+    "proxy",
+    "openai",
+    "llm",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
