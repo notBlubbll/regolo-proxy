@@ -2,6 +2,9 @@
 
 ## Project Structure
 
+<img width="1186" height="780" alt="image" src="https://github.com/user-attachments/assets/d92e7f08-e1d2-426c-b873-21eed61cc39b" />
+
+
 ```
 REGOLO-PROXY/
 ├── proxy.js              # Main proxy implementation + request router
