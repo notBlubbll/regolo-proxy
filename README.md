@@ -2,7 +2,7 @@
 
 OpenAI-compatible proxy server for [Regolo AI](https://regolo.ai). Zero external dependencies — uses only Node.js built-in modules.
 
-<img width="1186" height="780" alt="image" src="https://github.com/user-attachments/assets/d92e7f08-e1d2-426c-b873-21eed61cc39b" />
+<img width="1187" height="790" alt="image" src="https://github.com/user-attachments/assets/eb6f1ef8-ed78-45bf-bcc2-4564ca393bcc" />
 
 ## Features
 
