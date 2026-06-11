@@ -1,6 +1,6 @@
 # RegoloProxy
 
-OpenAI-compatible proxy server for [Regolo AI](https://regolo.ai), with built-in **CodeGraph** code intelligence. Zero external dependencies — uses only Node.js built-in modules.
+OpenAI-compatible proxy server for [Regolo AI](https://regolo.ai). Zero external dependencies — uses only Node.js built-in modules.
 
 <img width="1186" height="780" alt="image" src="https://github.com/user-attachments/assets/d92e7f08-e1d2-426c-b873-21eed61cc39b" />
 
@@ -11,8 +11,7 @@ OpenAI-compatible proxy server for [Regolo AI](https://regolo.ai), with built-in
 - **Response Caching** — LRU cache for non-streaming responses (configurable TTL and size)
 - **Multi-Key Rotation** — Round-robin API key rotation with session pinning
 - **Retry Logic** — Automatic retry on model-unavailable errors (up to 5 attempts)
-- **CodeGraph** — Built-in code knowledge graph with symbol extraction, search, and impact analysis
-- **Dashboard** — Liquid glass UI with model search, key management, CodeGraph, and usage tracking
+- **Dashboard** — Liquid glass UI with model search, key management, and usage tracking
 - **SSO Login** — Log in with your Regolo credentials from the dashboard to track token usage
 - **Bing Wallpaper** — Daily rotating backgrounds from Bing in the dashboard
 
@@ -98,18 +97,13 @@ Log in with your Regolo email/password in the **Regolo Login** section to see:
 - Total tokens used / 20M limit with percentage bar
 - All-time token consumption
 
-### CodeGraph
-- **Index** a project directory to extract symbols (functions, classes, interfaces, etc.)
-- **Search** symbols by name
-- **Explore** a symbol to see its source, callers, callees, and relationships
-- **Impact Analysis** — Trace blast radius up to N levels deep
-- View indexed **files**, graph **status**, and detected **routes**
-
 ### Other Dashboard Features
 - **Response Cache** — View cache hits/misses/size, clear cache
+- **Test Chat** — Inline chat interface to test models directly from the dashboard
 - **Proxy Configuration** — View current runtime configuration
+- **SS Mode** — Toggle token blur (privacy mode)
 - **Bing Wallpaper** — Toggle daily Bing background images
-- **Quick Actions** — Validate API key, refresh cache, etc.
+- **Quick Actions** — Validate API key, health check, platform login, save config
 
 ## Configuration
 
@@ -166,11 +160,9 @@ set API_KEYS=key1,key2
 | `GET` | `/api/regolo/user` | Regolo login status |
 | `GET` | `/api/regolo/usage` | Daily token usage + limit + countdown |
 | `POST` | `/api/regolo/logout` | Logout from Regolo SSO |
+| `POST` | `/api/regolo/dashboard-cookie` | Save dashboard.regolo.ai cookie for spend data |
+| `GET` | `/api/regolo/dashboard-data` | Fetch spend data via dashboard cookie |
 | `GET` | `/api/bg` | Daily Bing wallpaper |
-| `POST` | `/api/cg/index` | Index a file/directory for CodeGraph |
-| `GET` | `/api/cg/search?q=...` | Search CodeGraph symbols |
-| `GET` | `/api/cg/explore?q=...` | Explore a symbol (source + relationships) |
-| `GET` | `/api/cg/status` | CodeGraph graph stats |
 
 ## Opencode Integration
 

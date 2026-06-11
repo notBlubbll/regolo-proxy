@@ -5,11 +5,12 @@
 ```
 REGOLO-PROXY/
 ├── proxy.js              # Main proxy implementation + request router
-├── dashboard.html        # Liquid glass dashboard with model search + CodeGraph UI
+├── dashboard.html        # Liquid glass dashboard with model search, key management, usage tracking
 ├── .config/
-│   └── config.json       # Runtime configuration
-├── .codegraph/           # CodeGraph graph database (auto-created)
-│   └── graph.json        # Symbols, edges, files, routes
+│   ├── config.json       # Runtime configuration
+│   └── usage.json        # Daily token usage tracking (auto-created)
+├── .cache/               # Cached assets (auto-created)
+│   └── wallpaper.jpg     # Cached Bing wallpaper
 ├── package.json          # Project metadata (MIT, no deps)
 ├── start.cmd             # Auto-detect launcher (Bun preferred, Node fallback)
 ├── start-node.cmd        # Node.js-only launcher
@@ -42,35 +43,7 @@ REGOLO-PROXY/
 - `POST /api/models/remove` — Remove models from enabled list
 - `modelDisplayNames` — Custom display names persisted to config and opencode
 
-### 4. CodeGraph Module (codegraph.js)
-
-**Symbol Extraction** — Regex-based AST parsing for 20+ languages:
-- TypeScript/JavaScript: functions, classes, interfaces, types, enums, method calls, imports
-- Python: functions, classes, inheritance, method calls, imports
-- Go: functions, structs, interfaces, method calls, imports
-- Rust: functions, structs, traits, enums, impl blocks, use statements
-- Java/C#: classes, interfaces, methods, inheritance, imports
-- PHP/Ruby: classes, modules, functions, inheritance, requires
-- C/C++: functions, structs, includes
-- Swift/Kotlin/Scala/Dart/Lua: language-specific constructs
-- Vue/Svelte: script block extraction → TypeScript parser
-
-**Framework Route Detection** — Django, Flask, FastAPI, Express, Rails, Laravel, Spring, Gin
-
-**Graph Operations:**
-- `indexFile(path)` — Extract symbols + edges from one file (incremental via MD5 hash)
-- `indexDirectory(path, recursive)` — Walk directory tree, index all source files
-- `search(query, limit)` — Symbol search with exact/prefix/substring ranking
-- `explore(query, options)` — Full exploration: symbols + source + callers/callees + relationships + blast radius
-- `getCallers(name)` — Find what calls a symbol
-- `getCallees(name)` — Find what a symbol calls
-- `getImpact(name, depth)` — BFS impact analysis up to N levels deep
-- `getFiles()` — List all indexed files with symbol counts
-- `getStatus()` — Total nodes, edges, files, routes, per-language breakdown
-
-**Data Storage:** `.codegraph/graph.json` — JSON graph with nodes, edges, files, routes
-
-### 5. HTTP Handlers (proxy.js lines 500-800)
+### 4. HTTP Handlers (proxy.js lines 500-800)
 
 - `authorized(req)` — Checks `x-api-key` header or `Authorization: Bearer` against `config.apiKeys`
 - `readBody(req)` — Buffers incoming request body to string
@@ -80,7 +53,7 @@ REGOLO-PROXY/
 - `handleChatCompletions(req, res)` — Parses body, calls `proxyChatRequest`
 - `proxyChatRequest(res, payload, model, ...)` — Core proxy: clone payload, normalize tools, forward to upstream
 
-### 6. Request Router (proxy.js lines 1550-1820)
+### 5. Request Router (proxy.js lines 1550-1820)
 
 Routes by pathname:
 - `/` or `/dashboard` → Serve `dashboard.html`
@@ -93,28 +66,33 @@ Routes by pathname:
 - `/api/bg` (GET) → Bing wallpaper via peapix.com
 - `/api/keys` (GET/POST) → Multi-key CRUD
 - `/api/cache` (GET/DELETE) → Response cache stats/clear
-- `/api/cg/*` → CodeGraph routes (index, search, explore, symbol, callers, callees, impact, files, status, routes, clear)
+- `/api/models/families` (GET) → Available model families
+- `/api/regolo/login` (POST) → SSO login with Regolo credentials
+- `/api/regolo/user` (GET) → Regolo login status
+- `/api/regolo/usage` (GET) → Daily token usage + limit + countdown
+- `/api/regolo/logout` (POST) → Logout from Regolo SSO
+- `/api/regolo/dashboard-cookie` (POST) → Save dashboard.regolo.ai cookie
+- `/api/regolo/dashboard-data` (GET) → Fetch spend data via dashboard cookie
 - `/healthz` → Health check
 - `/v1/models` → OpenAI models
 - `/v1/chat/completions` → OpenAI chat
 
-### 7. Opencode Config (proxy.js lines 1830-1880)
+### 6. Opencode Config (proxy.js lines 1830-1880)
 
 - `setupOpencodeConfig()` — Writes provider config with display names from `modelDisplayNames`
 - Creates `openconfig.b4regolo.json` backup before first edit
 - Provider key: `regolo`, using `@ai-sdk/openai-compatible`
 
-### 9. Dashboard (dashboard.html)
+### 7. Dashboard (dashboard.html)
 
 - **Liquid Glass Engine** — Canvas-generated displacement maps with refraction profiles
 - **Model Search UI** — Search Regolo catalog with family filter, rich cards with model ID
 - **Enabled Models** — Click to edit display name (inline input), remove with X
-- **CodeGraph Section** — Index projects, search symbols, explore code with source display, impact analysis, status/files/routes views
-- **Context Mode Section** — Search knowledge base, index files/text, stats badge (sandbox removed)
 - **Key Manager Modal** — Inline add/edit/delete for multiple API keys
 - **SS Mode** — `token-blurred` CSS class (blur on hover)
-- **Auto-refresh** — Health check every 15s
-- **Collapsible Sections** — Models, Search, Enabled, API Key, Quick Actions, CodeGraph, Environment, Proxy Configuration
+- **Test Chat** — Inline chat interface to test models directly
+- **Auto-refresh** — Health check every 15s, usage every 5s
+- **Collapsible Sections** — Available Models, API Key, Quick Actions, Environment, Proxy Configuration
 - **Bing Wallpaper** — Daily rotating backgrounds toggle
 
 ## Request Lifecycle
@@ -146,15 +124,17 @@ Error   → parse upstream error, return formatted response
 1. `loadConfig()` — Load `.config/config.json` + env var overrides
 2. `UpstreamClient` — Initialize HTTP client
 3. `validateApiKey()` — Verify via `/models` (optional, warns if missing)
-4. `setupOpencodeConfig()` — Write/update opencode provider config
-5. `http.createServer(handleRequest).listen(port)` — Start HTTP server on port 8082
+4. `syncUsageFromApi()` — Initialize daily token count from Regolo API spend
+5. `setInterval(syncUsageFromApi, 30min)` — Periodic usage re-sync
+6. `setupOpencodeConfig()` — Write/update opencode provider config
+7. `http.createServer(handleRequest).listen(port)` — Start HTTP server on port 8082
 
 ## Testing
 
 ```bash
 # Syntax check
 node --check proxy.js
-node --check codegraph.js
+
 # Start proxy
 node proxy.js
 
@@ -166,13 +146,6 @@ curl http://localhost:8082/api/models
 # Test model search
 curl "http://localhost:8082/api/models/search?q=llama"
 
-# Test CodeGraph
-curl -X POST http://localhost:8082/api/cg/index \
-  -H "Content-Type: application/json" \
-  -d '{"filePath": "."}'
-curl "http://localhost:8082/api/cg/search?q=proxy"
-curl "http://localhost:8082/api/cg/explore?q=handleRequest"
-
 ```
 
 ## Dependencies
@@ -182,7 +155,7 @@ No external npm dependencies — uses Node.js built-in modules only: `fs`, `path
 ## Data Storage
 
 - `.config/config.json` — Proxy configuration (API keys, enabled models, display names)
-- `.codegraph/graph.json` — CodeGraph knowledge graph (nodes, edges, files, routes)
+- `.config/usage.json` — Daily token usage tracking (auto-created)
 - `.cache/wallpaper.jpg` — Cached Bing wallpaper
 
 ## Response Caching
