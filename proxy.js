@@ -11,18 +11,25 @@ const REGOLO_SSO_TOKEN_URL = 'https://sso.regolo.ai/realms/regolo/protocol/openi
 const API_KEY_ENV_VAR = 'REGOLO_API_KEY';
 const MODEL_LIMITS_URL = 'https://raw.githubusercontent.com/regolo-ai/opencode-configs/refs/heads/main/opencode.json';
 
-
+const AGNES_API_BASE = 'https://apihub.agnes-ai.com/v1';
+const AGNES_SUMMARIZE_MODEL = 'agnes-flash-2.0';
+const AGNES_SUMMARIZE_MAX_TOKENS = 512;
 
 const IS_BUN = typeof Bun !== 'undefined';
 const RUNTIME_VERSION = IS_BUN ? Bun.version : process.version.replace('v', '');
 
 let config = null;
+let _configCache = null;
 let modelsCache = null;
 let userInfoCache = { data: null, time: 0, ttl: 60000 };
 let startTime = new Date();
 let keyPool = null;
 let globalSessionCounter = 0;
 let dashboardHtmlCache = null;
+// --- Model catalog cache (5 min TTL) ---
+let modelCatalogCache = null;
+let modelCatalogCacheTime = 0;
+const MODEL_CATALOG_CACHE_TTL = 5 * 60 * 1000;
 // --- Per-model rate limiting ---
 const RATE_LIMIT_MAP = {};
 const rateLimitTimestamps = new Map();
@@ -94,6 +101,10 @@ function cacheKey(payload, requestedModel) {
 let responseCache = new ResponseCache();
 
 // --- Config ---
+function clearConfigCache() {
+  _configCache = null;
+}
+
 function loadConfig() {
   const configPath = path.join(__dirname, '.config', 'config.json');
   let rawConfig = {
@@ -103,6 +114,7 @@ function loadConfig() {
     CACHE_TTL: '60s',
     CACHE_MAX_SIZE: 100,
     CACHE_ENABLED: true,
+    AGNES_KEY: 'cpk-oW4lEPa4P55zit1qRgBiqsOc85aU4jZXmtdvAU3L6SmAtv98',
   };
   if (fs.existsSync(configPath)) {
     try {
@@ -150,6 +162,7 @@ function loadConfig() {
     cacheTtl: parseDuration(rawConfig.CACHE_TTL || '60s') || 60000,
     cacheMaxSize: Math.max(0, rawConfig.CACHE_MAX_SIZE || 100),
     cacheEnabled: rawConfig.CACHE_ENABLED !== false,
+    agnesKey: rawConfig.AGNES_KEY || process.env.AGNES_KEY || '',
     regoloUsername: rawConfig.REGOLO_USERNAME || '',
     regoloPassword: rawConfig.REGOLO_PASSWORD || '',
     regoloAccessToken: rawConfig.REGOLO_ACCESS_TOKEN || '',
@@ -189,6 +202,7 @@ function saveConfig(cfg) {
     CACHE_TTL: `${(cfg.cacheTtl || 60000) / 1000}s`,
     CACHE_MAX_SIZE: cfg.cacheMaxSize || 100,
     CACHE_ENABLED: cfg.cacheEnabled !== false,
+    AGNES_KEY: cfg.agnesKey || '',
     REGOLO_USERNAME: cfg.regoloUsername || '',
     REGOLO_PASSWORD: cfg.regoloPassword || '',
     REGOLO_ACCESS_TOKEN: cfg.regoloAccessToken || '',
@@ -198,6 +212,15 @@ function saveConfig(cfg) {
     ACCOUNTS: cfg.accounts || [],
 
   }, null, 2));
+}
+
+let _saveConfigTimer = null;
+function debouncedSaveConfig(cfg) {
+  if (_saveConfigTimer) clearTimeout(_saveConfigTimer);
+  _saveConfigTimer = setTimeout(() => {
+    saveConfig(cfg);
+    _saveConfigTimer = null;
+  }, 500);
 }
 
 // --- In-Memory Usage Tracking ---
@@ -416,31 +439,37 @@ async function fetchAccountUsage(account) {
 async function refreshAllAccountUsage() {
   const accounts = config?.accounts || [];
   if (accounts.length === 0) return;
-  const results = [];
-  for (const acc of accounts) {
-    // Login each account separately to get fresh data
-    let accessToken = acc.accessToken;
+  const promises = accounts.map(acc => {
+    const usage = fetchAccountUsage(acc);
+    let loginPromise;
     if (acc.password) {
-      const loginResult = await regoloLogin(acc.email, acc.password);
-      if (loginResult.success) {
-        accessToken = loginResult.accessToken;
-        acc.accessToken = loginResult.accessToken;
-        acc.refreshToken = loginResult.refreshToken || acc.refreshToken;
-        acc.lastLogin = new Date().toISOString();
-      }
+      loginPromise = regoloLogin(acc.email, acc.password).then(result => {
+        if (result.success) {
+          acc.accessToken = result.accessToken;
+          acc.refreshToken = result.refreshToken || acc.refreshToken;
+          acc.lastLogin = new Date().toISOString();
+          return result;
+        }
+        return result;
+      });
+    } else {
+      loginPromise = Promise.resolve();
     }
-    const usage = await fetchAccountUsage(acc);
-    results.push({
-      email: acc.email,
-      keyPreview: acc.key ? acc.key.substring(0, 8) + '...' : '',
-      usage,
-      loggedIn: !!accessToken,
-      lastLogin: acc.lastLogin || '',
+    return Promise.allSettled([loginPromise, usage]).then(([loginResult, usageResult]) => {
+      return {
+        email: acc.email,
+        keyPreview: acc.key ? acc.key.substring(0, 8) + '...' : '',
+        usage: usageResult.status === 'fulfilled' ? usageResult.value : null,
+        loggedIn: loginResult.status === 'fulfilled' && loginResult.value?.success,
+        lastLogin: acc.lastLogin || '',
+      };
     });
-  }
-  accountUsageCache = results;
+  });
+  const results = await Promise.all(promises);
+  const settled = results.filter(r => r);
+  accountUsageCache = settled;
   accountUsageCacheTime = Date.now();
-  if (accounts.length > 0) saveConfig(config);
+  if (accounts.length > 0) debouncedSaveConfig(config);
 }
 
 function getAccountUsage() {
@@ -523,7 +552,8 @@ class KeyPool {
     const p = new Promise(r => release = r);
     const old = this._mutex;
     this._mutex = p;
-    return old.then(() => { try { return fn(); } finally { release(); } });
+    const chained = old.then(() => fn());
+    return chained.finally(() => release());
   }
 
   acquire() {
@@ -544,9 +574,15 @@ class KeyPool {
     });
   }
 
-  markUnhealthy(index) {
+  markUnhealthy(index, status) {
     const entry = this._entries[index];
-    if (entry) { entry.healthy = false; entry.lastError = Date.now(); }
+    if (entry) {
+      entry.healthy = false;
+      entry.lastError = Date.now();
+      if (status >= 503) entry.cooldownMs = 60000;
+      else if (status >= 502) entry.cooldownMs = 30000;
+      else entry.cooldownMs = 10000;
+    }
   }
 
   markHealthy(index) {
@@ -578,6 +614,17 @@ class KeyPool {
         token: e.key ? e.key.substring(0, 10) + '...' + e.key.substring(e.key.length - 4) : '',
       };
     });
+  }
+}
+
+function stripReasoningContent(payload) {
+  const msgs = payload?.messages;
+  if (!Array.isArray(msgs)) return;
+  for (const m of msgs) {
+    if (m.role === 'assistant') {
+      delete m.reasoning_content;
+      delete m.reasoningContent;
+    }
   }
 }
 
@@ -650,11 +697,130 @@ class UpstreamClient {
   }
 }
 
-// --- Search models from Regolo (fetches catalog via /v1/models, filters locally) ---
-async function searchRegoloModels(query, filters = {}) {
+// --- AGNES Summarization Client ---
+const AGNES_AGENT = new https.Agent({ keepAlive: true, keepAliveMsecs: 60000, maxSockets: 16, timeout: 30000, maxFreeSockets: 8, scheduling: 'lifo' });
+const AGNES_SUMMARIZE_PROMPT = `Summarize the following conversation into 1-3 concise sentences capturing key context. Focus on user intent, decisions made, and important facts. Omit pleasantries.`;
+
+const SUMMARIZE_THRESHOLD = 10;
+const SUMMARIZE_KEEP_LAST = 6;
+const conversationSummaryStore = new Map();
+const SUMMARY_STORE_MAX = 1000;
+const SUMMARY_STORE_TTL = 30 * 60 * 1000; // 30 min
+
+function trimSummaryStore() {
+  const now = Date.now();
+  for (const [key, value] of conversationSummaryStore) {
+    if (now - value.time > SUMMARY_STORE_TTL) {
+      conversationSummaryStore.delete(key);
+    }
+  }
+  if (conversationSummaryStore.size > SUMMARY_STORE_MAX) {
+    const entries = [...conversationSummaryStore.entries()].sort((a, b) => a[1].time - b[1].time);
+    for (let i = 0; i < entries.length - SUMMARY_STORE_MAX / 2; i++) {
+      conversationSummaryStore.delete(entries[i][0]);
+    }
+  }
+}
+
+function conversationUserKey(payload) {
+  const msgs = payload.messages;
+  if (!Array.isArray(msgs)) return '';
+  const model = payload.model || '';
+  const sysContent = (msgs.find(m => m.role === 'system')?.content || '').substring(0, 200);
+  const userMsgs = msgs.filter(m => m.role === 'user').map(m => {
+    const c = typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.filter(p => p?.type === 'text').map(p => p.text).join(' ') : '');
+    return c;
+  });
+  if (userMsgs.length < 1) return '';
+  return crypto.createHash('md5').update(model + '||' + sysContent + '||' + JSON.stringify(userMsgs)).digest('hex');
+}
+
+function hydrateSummarizedConversation(payload) {
+  if (!config.agnesKey) return;
+  const msgs = payload.messages;
+  if (!Array.isArray(msgs) || msgs.length < 3) return;
+  const userMsgs = msgs.filter(m => m.role === 'user');
+  if (userMsgs.length < 2) return;
+  const prefixMsgs = msgs.filter(m => m.role === 'system').concat(
+    msgs.filter(m => m.role !== 'system').slice(0, -1)
+  );
+  const p2 = JSON.parse(JSON.stringify(payload));
+  p2.messages = prefixMsgs;
+  const fp = conversationUserKey(p2);
+  if (!fp) return;
+  const stored = conversationSummaryStore.get(fp);
+  if (!stored) return;
+  const nonSys = msgs.filter(m => m.role !== 'system');
+  const keep = Math.max(SUMMARIZE_KEEP_LAST, 2);
+  const kept = msgs.filter(m => m.role === 'system').concat(
+    [{ role: 'system', content: `Previous conversation summary: ${stored.summary}` }],
+    nonSys.slice(nonSys.length - keep)
+  );
+  payload.messages = kept;
+}
+
+async function agnesSummarize(messages) {
+  const key = config?.agnesKey;
+  if (!key) return null;
+  const cleaned = messages.map(m => {
+    if (m.role === 'assistant') {
+      const c = { ...m };
+      delete c.reasoning_content;
+      delete c.reasoningContent;
+      return c;
+    }
+    return m;
+  });
+  const text = cleaned.map(m => {
+    const role = m.role || 'unknown';
+    const content = typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.filter(p => p?.type === 'text').map(p => p.text).join(' ') : '');
+    return `${role}: ${content}`;
+  }).join('\n');
+  const body = JSON.stringify({
+    model: AGNES_SUMMARIZE_MODEL,
+    messages: [
+      { role: 'system', content: AGNES_SUMMARIZE_PROMPT },
+      { role: 'user', content: text },
+    ],
+    max_tokens: AGNES_SUMMARIZE_MAX_TOKENS,
+    stream: false,
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const resp = await fetch(`${AGNES_API_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body,
+      signal: controller.signal,
+      agent: AGNES_AGENT,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data?.choices?.[0]?.message?.content || null;
+  } catch (e) { clearTimeout(timer); return null; }
+}
+
+async function summarizeConversationAfterResponse(payload) {
+  if (!config.agnesKey) return;
+  const msgs = payload.messages;
+  if (!Array.isArray(msgs) || msgs.length < SUMMARIZE_THRESHOLD) return;
+  const nonSys = msgs.filter(m => m.role !== 'system');
+  if (nonSys.length < SUMMARIZE_THRESHOLD) return;
+  const keep = Math.max(SUMMARIZE_KEEP_LAST, 2);
+  const toSummarize = nonSys.slice(0, nonSys.length - keep);
+  if (toSummarize.length < 2) return;
+  const summary = await agnesSummarize(toSummarize);
+  if (!summary) return;
+  const fp = conversationUserKey(payload);
+  if (fp) { conversationSummaryStore.set(fp, { summary, time: Date.now() }); trimSummaryStore(); }
+}
+
+// --- Search models from Regolo (with catalog cache) ---
+async function fetchModelCatalog() {
   const apiKey = config?.apiKey || config?.keys?.[0]?.key || '';
   const baseURL = config?.upstreamBaseURL || REGOLO_API_BASE;
-
   const url = `${baseURL}/models`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -667,32 +833,41 @@ async function searchRegoloModels(query, filters = {}) {
     });
     clearTimeout(timer);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    // Filter results locally
-    let results = data.data || [];
-    if (query) {
-      const q = query.toLowerCase();
-      results = results.filter(m => m.id.toLowerCase().includes(q));
-    }
-    if (filters.family) {
-      const fam = filters.family.toLowerCase();
-      results = results.filter(m => {
-        const id = m.id.toLowerCase();
-        // Heuristic: family if model name starts with the family word
-        return id.startsWith(fam) || id.includes('-' + fam) || id.includes(fam + '-');
-      });
-    }
-    return { object: 'list', data: results };
+    return await resp.json();
   } catch (e) { clearTimeout(timer); throw e; }
+}
+
+async function getCatalogData() {
+  if (modelCatalogCache && Date.now() - modelCatalogCacheTime < MODEL_CATALOG_CACHE_TTL) {
+    return modelCatalogCache;
+  }
+  const data = await fetchModelCatalog();
+  modelCatalogCache = data;
+  modelCatalogCacheTime = Date.now();
+  return data;
+}
+
+async function searchRegoloModels(query, filters = {}) {
+  const data = await getCatalogData();
+  // Filter results locally
+  let results = data.data || [];
+  if (query) {
+    const q = query.toLowerCase();
+    results = results.filter(m => m.id.toLowerCase().includes(q));
+  }
+  if (filters.family) {
+    const fam = filters.family.toLowerCase();
+    results = results.filter(m => {
+      const id = m.id.toLowerCase();
+      return id.startsWith(fam) || id.includes('-' + fam) || id.includes(fam + '-');
+    });
+  }
+  return { object: 'list', data: results };
 }
 
 // --- Utility ---
 function generateClientSessionId() {
-  const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz';
-  const buf = crypto.randomBytes(10);
-  let out = '';
-  for (let i = 0; i < 13; i++) out += alphabet[buf[i % buf.length] % 36];
-  return out;
+  return Math.random().toString(36).substring(2, 15);
 }
 
 function cloneObj(obj) {
@@ -1379,6 +1554,9 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
   const sessNum = ++globalSessionCounter;
   stampSessionLabel(payload, slot.name, sessNum);
 
+  stripReasoningContent(payload);
+  hydrateSummarizedConversation(payload);
+
   const cacheEnabled = config.cacheEnabled && !payload.stream;
   let ck;
   if (cacheEnabled) {
@@ -1421,7 +1599,7 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
       try {
         resp = await upstream.chatCompletions(payload);
       } catch (e) {
-        keyPool.markUnhealthy(slot.index);
+        keyPool.markUnhealthy(slot.index, 502);
         writeError(res, 502, e.message, 'server_error', '');
         return { retry: false };
       }
@@ -1434,10 +1612,17 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
           if (contentType.includes('text/event-stream')) {
             const chunks = [];
             let headersSent = false;
+            let totalStreamBytes = 0;
+            const MAX_STREAM_BYTES = 5 * 1024 * 1024; // 5MB cap
 
             const onData = (chunk) => {
               const buf = Buffer.from(chunk);
+              totalStreamBytes += buf.length;
               chunks.push(buf);
+              // Trim old chunks when buffer exceeds cap
+              while (totalStreamBytes > MAX_STREAM_BYTES && chunks.length > 1) {
+                totalStreamBytes -= chunks.shift().length;
+              }
               if (!headersSent) {
                 res.writeHead(resp.status, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
                 headersSent = true;
@@ -1556,13 +1741,14 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
         }
         return { retry: true };
       }
-      if (resp.status >= 500) keyPool.markUnhealthy(slot.index);
+      if (resp.status >= 500) keyPool.markUnhealthy(slot.index, resp.status);
       console.error(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-error:${resp.status}`);
       writeUpstreamError(res, resp.status, errorBodyStr);
       return { retry: false };
     });
     if (!roundSuccess) break;
   }
+  summarizeConversationAfterResponse(payload);
 }
 
 function isModelUnavailableError(body) {
@@ -1650,12 +1836,13 @@ async function handleRequest(req, res) {
         if (newConfig.listenAddr) config.listenAddr = newConfig.listenAddr;
         if (Array.isArray(newConfig.enabledModels)) config.enabledModels = newConfig.enabledModels;
         if (newConfig.modelDisplayNames && typeof newConfig.modelDisplayNames === 'object') config.modelDisplayNames = newConfig.modelDisplayNames;
+        if (newConfig.agnesKey !== undefined) config.agnesKey = newConfig.agnesKey;
         if (Array.isArray(newConfig.keys)) {
           config.keys = newConfig.keys;
           keyPool = new KeyPool(config.keys.filter(k => k.key));
         }
 
-        saveConfig(config);
+        debouncedSaveConfig(config);
         setupOpencodeConfig();
         writeJSON(res, 200, { success: true });
       }
@@ -1740,7 +1927,7 @@ async function handleRequest(req, res) {
         }
       }
       modelsCache = null;
-      saveConfig(config);
+      debouncedSaveConfig(config);
       setupOpencodeConfig();
       writeJSON(res, 200, { success: true, added, total: config.enabledModels.length });
     } catch (e) { writeJSON(res, 400, { error: e.message }); }
@@ -1758,7 +1945,7 @@ async function handleRequest(req, res) {
       const idSet = new Set(modelIds.map(id => typeof id === 'string' ? id.trim() : ''));
       config.enabledModels = config.enabledModels.filter(m => !idSet.has(m));
       modelsCache = null;
-      saveConfig(config);
+      debouncedSaveConfig(config);
       setupOpencodeConfig();
       writeJSON(res, 200, { success: true, removed: modelIds.length, total: config.enabledModels.length });
     } catch (e) { writeJSON(res, 400, { error: e.message }); }
@@ -1832,7 +2019,7 @@ async function handleRequest(req, res) {
           config.keys.push({ name: data.name || `Key ${config.keys.length + 1}`, key: data.key || '', session: '' });
           if (!config.apiKey && data.key) config.apiKey = data.key;
           keyPool = new KeyPool(config.keys.filter(k => k.key));
-          saveConfig(config);
+          debouncedSaveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
         } else if (data.action === 'update') {
@@ -1841,7 +2028,7 @@ async function handleRequest(req, res) {
           if (data.key !== undefined) config.keys[data.index].key = data.key;
           if (data.index === 0 && config.keys[0].key) config.apiKey = config.keys[0].key;
           keyPool = new KeyPool(config.keys.filter(k => k.key));
-          saveConfig(config);
+          debouncedSaveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
         } else if (data.action === 'delete') {
@@ -1850,7 +2037,7 @@ async function handleRequest(req, res) {
           if (config.keys.length === 0) config.keys.push({ name: 'Key 1', key: '', session: '' });
           if (data.index === 0) config.apiKey = config.keys[0].key || '';
           keyPool = new KeyPool(config.keys.filter(k => k.key));
-          saveConfig(config);
+          debouncedSaveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
         } else {
@@ -1895,7 +2082,7 @@ async function handleRequest(req, res) {
         } else {
           config.accounts.push(accEntry);
         }
-        saveConfig(config);
+        debouncedSaveConfig(config);
         writeJSON(res, 200, { success: true, email: result.email, lastLogin: config.regoloLastLogin });
       } else {
         writeJSON(res, 401, { error: result.error || 'Login failed' });
@@ -1919,50 +2106,63 @@ async function handleRequest(req, res) {
 
   if (pathname === '/api/regolo/usage' && req.method === 'GET') {
     (async () => {
-      await fetchRegoloUserInfo();
-      const usage = getRegoloUsage();
-      const countdown = getItalianMidnightCountdown();
-      const anyAccountToken = config?.accounts?.some(a => !!a.accessToken) || false;
-      const loggedIn = !!(config.regoloAccessToken) || anyAccountToken;
-      let email = config.regoloUsername || config?.accounts?.[0]?.email || '';
-      // Combine account usages if available
-      let combined = null;
-      let accountsData = [];
-      const accts = config?.accounts || [];
-      if (accts.length > 0) {
-        if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
-          await refreshAllAccountUsage();
-        }
-        accountsData = accountUsageCache;
-        let totalUsed = 0;
-        let totalLimit = accts.length * REGOLO_USAGE_LIMIT;
-        let accCount = 0;
-        for (const a of accountsData) {
-          if (a.usage) {
-            totalUsed += a.usage.totalTokens || 0;
-            accCount++;
+      try {
+        await fetchRegoloUserInfo();
+        const usage = getRegoloUsage();
+        const countdown = getItalianMidnightCountdown();
+        const anyAccountToken = config?.accounts?.some(a => !!a.accessToken) || false;
+        const loggedIn = !!(config.regoloAccessToken) || anyAccountToken;
+        let email = config.regoloUsername || config?.accounts?.[0]?.email || '';
+        let combined = null;
+        let accountsData = [];
+        const accts = config?.accounts || [];
+        if (accts.length > 0) {
+          if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
+            await refreshAllAccountUsage();
           }
+          accountsData = accountUsageCache;
+          let totalUsed = 0;
+          let totalLimit = accts.length * REGOLO_USAGE_LIMIT;
+          let accCount = 0;
+          for (const a of accountsData) {
+            if (a.usage) {
+              totalUsed += a.usage.totalTokens || 0;
+              accCount++;
+            }
+          }
+          const combinedPercent = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
+          combined = {
+            used: totalUsed,
+            limit: totalLimit,
+            percent: Math.round(combinedPercent * 10) / 10,
+            accountCount: accCount,
+          };
         }
-        const combinedPercent = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
-        combined = {
-          used: totalUsed,
-          limit: totalLimit,
-          percent: Math.round(combinedPercent * 10) / 10,
-          accountCount: accCount,
-        };
+        if (res.writableEnded) return;
+        writeJSON(res, 200, { ...usage, countdown, loggedIn, email, combined, accounts: accountsData });
+      } catch (e) {
+        if (!res.writableEnded) {
+          writeJSON(res, 500, { error: e.message });
+        }
       }
-      writeJSON(res, 200, { ...usage, countdown, loggedIn, email, combined, accounts: accountsData });
     })();
     return;
   }
 
   if (pathname === '/api/regolo/accounts-usage' && req.method === 'GET') {
     (async () => {
-      const accts = config?.accounts || [];
-      if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
-        await refreshAllAccountUsage();
+      try {
+        const accts = config?.accounts || [];
+        if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
+          await refreshAllAccountUsage();
+        }
+        if (res.writableEnded) return;
+        writeJSON(res, 200, { accounts: accountUsageCache });
+      } catch (e) {
+        if (!res.writableEnded) {
+          writeJSON(res, 500, { error: e.message });
+        }
       }
-      writeJSON(res, 200, { accounts: accountUsageCache });
     })();
     return;
   }
@@ -1972,7 +2172,7 @@ async function handleRequest(req, res) {
     config.regoloRefreshToken = '';
     config.regoloLastLogin = '';
 
-    saveConfig(config);
+    debouncedSaveConfig(config);
     writeJSON(res, 200, { success: true });
     return;
   }
@@ -2087,7 +2287,7 @@ async function startServer(retryPort = null) {
         refreshToken: config.regoloRefreshToken || '',
         lastLogin: config.regoloLastLogin || '',
       });
-      saveConfig(config);
+      debouncedSaveConfig(config);
     }
   }
 
@@ -2144,6 +2344,7 @@ async function startServer(retryPort = null) {
     console.log(`  Enabled Models: ${(config.enabledModels || []).length} (search & add via dashboard)`);
     console.log(`  Response Cache: ${config.cacheEnabled ? 'enabled (' + config.cacheMaxSize + ' entries, ' + (config.cacheTtl / 1000) + 's TTL)' : 'disabled'}`);
     console.log(`  Proxy API Keys: ${config.apiKeys.length > 0 ? config.apiKeys.length + ' (auth enabled)' : 'none (open access)'}`);
+    console.log(`  AGNES Summarization: ${config.agnesKey ? 'enabled (' + config.agnesKey.substring(0, 10) + '...)' : 'disabled'}`);
     console.log('');
   });
 }

@@ -996,6 +996,12 @@
                     <input type="url" class="form-control form-control-sm" id="upstreamUrl" value="https://api.regolo.ai/v1">
                   </div>
                 </div>
+                <div class="row">
+                  <div class="col-12 mb-2">
+                    <label class="form-label" style="font-size:10px;margin-bottom:2px">AGNES Key (for conversation summarization)</label>
+                    <input type="password" class="form-control form-control-sm" id="agnesKey" placeholder="cpk-...">
+                  </div>
+                </div>
               </form>
             </div>
           </div>
@@ -1246,6 +1252,18 @@
     let config = {};
     let blurTokensEnabled = false;
 
+    // --- DOM element cache ---
+    const domCache = {};
+    function getEl(id) {
+      if (domCache[id] && document.getElementById(id) === domCache[id]) return domCache[id];
+      const el = document.getElementById(id);
+      if (el) domCache[id] = el;
+      return el;
+    }
+    function clearDomCache() {
+      Object.keys(domCache).forEach(k => delete domCache[k]);
+    }
+
     // --- Multi-Account Slideshow ---
     let planSlides = [];
     let currentSlide = 0;
@@ -1324,56 +1342,56 @@
         }
       }
 
-      const nameEl = document.getElementById('planName');
+      const nameEl = getEl('planName');
       if (nameEl) {
         const planLabel = accounts.length > 1 ? accounts.length + ' Accounts Combined' : (accounts.length === 1 ? '1 Account' : 'No Accounts');
         nameEl.textContent = planLabel;
         nameEl.setAttribute('title', planLabel);
       }
 
-      const expiryEl = document.getElementById('planExpiry');
+      const expiryEl = getEl('planExpiry');
       if (expiryEl) {
         expiryEl.textContent = accCount + '/' + accounts.length + ' active';
         expiryEl.style.color = accCount > 0 ? 'rgba(255,255,255,0.45)' : '#dc3545';
       }
 
       const pct = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
-      const fiveEl = document.getElementById('fiveHourUsage');
+      const fiveEl = getEl('fiveHourUsage');
       if (fiveEl) fiveEl.innerHTML = '<strong>' + pct.toFixed(1) + '%</strong>';
 
-      const fiveBarText = document.getElementById('fiveHourBarText');
+      const fiveBarText = getEl('fiveHourBarText');
       if (fiveBarText) fiveBarText.textContent = '(' + totalUsed.toLocaleString() + '/' + totalLimit.toLocaleString() + ')';
 
-      const fiveBar = document.getElementById('fiveHourBar');
+      const fiveBar = getEl('fiveHourBar');
       if (fiveBar) {
         fiveBar.style.width = pct + '%';
         fiveBar.style.background = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : 'rgba(255,255,255,0.6)';
       }
 
-      const fiveReset = document.getElementById('fiveHourReset');
+      const fiveReset = getEl('fiveHourReset');
       if (fiveReset) fiveReset.textContent = 'Across ' + accounts.length + ' accounts';
 
-      const weekEl = document.getElementById('weeklyUsage');
+      const weekEl = getEl('weeklyUsage');
       if (weekEl) weekEl.innerHTML = '<strong>' + totalAllTime.toLocaleString() + '</strong>';
 
-      const weekBar = document.getElementById('weeklyBar');
+      const weekBar = getEl('weeklyBar');
       if (weekBar) {
         weekBar.style.width = '100%';
         weekBar.style.background = 'rgba(88,166,255,0.5)';
       }
 
-      const weekBarText = document.getElementById('weeklyBarText');
+      const weekBarText = getEl('weeklyBarText');
       if (weekBarText) weekBarText.textContent = 'lifetime';
 
-      const weekReset = document.getElementById('weeklyReset');
+      const weekReset = getEl('weeklyReset');
       if (weekReset) weekReset.textContent = accounts.length + ' key' + (accounts.length !== 1 ? 's' : '');
     }
 
     function renderPlanInto(data, prefix) {
       if (!data) return;
       const p = prefix || '';
-      const nameEl = document.getElementById('planName' + p);
-      const expiryEl = document.getElementById('planExpiry' + p);
+      const nameEl = getEl('planName' + p);
+      const expiryEl = getEl('planExpiry' + p);
 
       if (nameEl) {
         nameEl.textContent = data.email || 'Account';
@@ -1390,43 +1408,44 @@
         const tokens = data.usage.dailyTokens || data.usage.totalTokens || 0;
         const budget = accountLimit;
         const usagePct = Math.min(100, (tokens / budget) * 100);
-        const fiveEl = document.getElementById('fiveHourUsage' + p);
+        const fiveEl = getEl('fiveHourUsage' + p);
         if (fiveEl) fiveEl.innerHTML = '<strong>' + usagePct.toFixed(1) + '%</strong>';
 
-        const fiveBarText = document.getElementById('fiveHourBarText' + p);
+        const fiveBarText = getEl('fiveHourBarText' + p);
         if (fiveBarText) fiveBarText.textContent = '(' + tokens.toLocaleString() + '/' + budget.toLocaleString() + ')';
 
-        const fiveBar = document.getElementById('fiveHourBar' + p);
+        const fiveBar = getEl('fiveHourBar' + p);
         if (fiveBar) {
           fiveBar.style.width = usagePct + '%';
           fiveBar.style.background = usagePct > 80 ? '#dc3545' : usagePct > 50 ? '#ffd700' : 'rgba(255,255,255,0.6)';
         }
 
-        const fiveReset = document.getElementById('fiveHourReset' + p);
+        const fiveReset = getEl('fiveHourReset' + p);
         if (fiveReset) fiveReset.textContent = (data.usage.userRole || 'user') + ' · ' + (data.usage.keys?.length || 0) + ' keys';
       }
 
-      const weekEl = document.getElementById('weeklyUsage' + p);
+      const weekEl = getEl('weeklyUsage' + p);
       if (weekEl) weekEl.innerHTML = '<strong>' + ((data.usage?.totalTokens || 0)).toLocaleString() + '</strong>';
 
-      const weekBar = document.getElementById('weeklyBar' + p);
+      const weekBar = getEl('weeklyBar' + p);
       if (weekBar) {
         weekBar.style.width = '100%';
         weekBar.style.background = 'rgba(88,166,255,0.5)';
       }
 
-      const weekBarText = document.getElementById('weeklyBarText' + p);
+      const weekBarText = getEl('weeklyBarText' + p);
       if (weekBarText) weekBarText.textContent = 'lifetime';
 
-      const weekReset = document.getElementById('weeklyReset' + p);
+      const weekReset = getEl('weeklyReset' + p);
       if (weekReset) weekReset.textContent = data.keyPreview || '';
     }
 
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
       toast.className = `toast align-items-center text-white bg-${type} border-0 show`;
-      toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
-      document.getElementById('toastContainer').appendChild(toast);
+      toast.innerHTML = `<div class="d-flex"><div class="toast-body">${escapeHtml(message).substring(0, 200)}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+      const container = getEl('toastContainer');
+      if (container) { container.appendChild(toast); }
       setTimeout(() => toast.remove(), 3000);
     }
 
@@ -1822,6 +1841,7 @@
           if (document.getElementById('upstreamUrl')) document.getElementById('upstreamUrl').value = configData.upstreamBaseURL || 'https://api.regolo.ai/v1';
           if (document.getElementById('requestTimeout')) document.getElementById('requestTimeout').value = configData.requestTimeout || '15m';
           if (document.getElementById('wallpaperToggle')) document.getElementById('wallpaperToggle').checked = configData.enableWallpaper !== false;
+          if (document.getElementById('agnesKey')) document.getElementById('agnesKey').value = configData.agnesKey || '';
         }
         // Fetch all available models from Regolo catalog via proxy
         const searchResp = await fetch('/api/models/search');
@@ -1948,6 +1968,7 @@
           // Remove old slides (keep slide 0)
           slideshow.querySelectorAll('.plan-slide').forEach((s, i) => { if (i > 0) s.remove(); });
           dots.innerHTML = '';
+          clearDomCache();
 
           planSlides = [];
           // Slide 0: combined
@@ -2158,6 +2179,7 @@
         upstreamBaseURL: document.getElementById('upstreamUrl').value,
         requestTimeout: document.getElementById('requestTimeout').value,
         enableWallpaper: document.getElementById('wallpaperToggle').checked,
+        agnesKey: document.getElementById('agnesKey').value,
       };
       try {
         const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
