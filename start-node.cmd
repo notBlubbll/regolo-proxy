@@ -16,10 +16,8 @@ timeout /t 1 /nobreak >nul
 title RegoloProxy - Node.js Mode
 
 echo ==================================================
-echo  RegoloProxy - Node.js Mode
-echo  Enforces Node.js (ignores Bun)
+echo  RegoloProxy (Node.js) — http://localhost:%PORT%
 echo ==================================================
-echo.
 
 echo [1/3] Cleaning up...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (

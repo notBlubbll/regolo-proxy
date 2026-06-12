@@ -10,15 +10,14 @@ cd /d "%~dp0"
 set "PORT=8082"
 set "CONFIG_FILE=%~dp0.config\config.json"
 if exist "%CONFIG_FILE%" (
-    for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$c=Get-Content '%CONFIG_FILE%' -Raw ^| ConvertFrom-Json; $l=$c.LISTEN_ADDR; if($l -match ':(?<p>\d+)$'){Write-Output $matches['p']}else{Write-Output '8082'}"`) do set "PORT=%%a"
+    for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$c=Get-Content '%CONFIG_FILE%' -Raw | ConvertFrom-Json; $l=$c.LISTEN_ADDR; if($l -match ':(?<p>\d+)$'){Write-Output $matches['p']}else{Write-Output '8082'}"`) do set "PORT=%%a"
 )
 
 title RegoloProxy
 
 echo ==================================================
-echo  RegoloProxy
+echo  RegoloProxy — http://localhost:%PORT%
 echo ==================================================
-echo.
 
 set "BUN_PATH=C:\WINDOWS\system32\config\systemprofile\.bun\bin"
 set "PATH=%BUN_PATH%;%PATH%"
@@ -50,11 +49,6 @@ exit
 
 :start
 echo [3/3] Starting proxy...
-echo.
-echo ==================================================
-echo  Proxy: http://localhost:%PORT%
-echo  Dashboard: http://localhost:%PORT%/dashboard
-echo ==================================================
 echo.
 
 if "%RUNTIME%"=="bun" (

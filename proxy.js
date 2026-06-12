@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const REGOLO_API_BASE = 'https://api.regolo.ai/v1';
 const REGOLO_SSO_TOKEN_URL = 'https://sso.regolo.ai/realms/regolo/protocol/openid-connect/token';
 const API_KEY_ENV_VAR = 'REGOLO_API_KEY';
+const MODEL_LIMITS_URL = 'https://raw.githubusercontent.com/regolo-ai/opencode-configs/refs/heads/main/opencode.json';
 
 
 
@@ -684,6 +685,30 @@ function pipeBodyToResponse(body, res) {
 
 
 
+// --- Model Limits from Regolo Config ---
+const DEFAULT_OUTPUT_LIMIT = 100000;
+
+function getModelOutputLimit(modelId) {
+  if (modelLimitsCache.data && modelLimitsCache.data[modelId] && modelLimitsCache.data[modelId].limit) {
+    return modelLimitsCache.data[modelId].limit.output;
+  }
+  return DEFAULT_OUTPUT_LIMIT;
+}
+
+async function fetchModelLimits() {
+  if (modelLimitsCache.data && Date.now() - modelLimitsCache.time < modelLimitsCache.ttl) return;
+  try {
+    const resp = await fetch(MODEL_LIMITS_URL, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const models = data?.provider?.regolo?.models;
+    if (models) {
+      modelLimitsCache.data = models;
+      modelLimitsCache.time = Date.now();
+    }
+  } catch (e) { /* silent */ }
+}
+
 // --- HTTP Handlers ---
 const PROXY_TOOLS = [
   {
@@ -1182,6 +1207,11 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
   console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-${promptPreview}`);
 
   payload.model = requestedModel;
+  // Set max_tokens based on model output limit
+  const modelOutputLimit = getModelOutputLimit(requestedModel);
+  if (!payload.max_tokens || payload.max_tokens > modelOutputLimit || payload.max_tokens < 100) {
+    payload.max_tokens = modelOutputLimit;
+  }
   if (payload.tools) {
     const needNorm = payload.tools.some(t => t.function?.parameters?.$defs || t.function?.parameters?.definitions || t.function?.parameters?.$ref);
     if (needNorm) normalizeToolSchemas(payload.tools);
@@ -1244,6 +1274,15 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
             }
 
             const fullText = Buffer.concat(chunks).toString();
+            // Detect truncation (finish_reason: length = cut off mid-stream)
+            try {
+              const finishLines = fullText.split('\n').filter(l => l.startsWith('data: ') && l.includes('"finish_reason"'));
+              const truncated = finishLines.find(l => l.includes('"length"'));
+              if (truncated) {
+                const p = JSON.parse(truncated.slice(6));
+                console.warn(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-TRUNCATED: model hit output token limit`);
+              }
+            } catch {}
             // Track token usage from stream (last data line with usage)
             try {
               const lines = fullText.split('\n').filter(l => l.startsWith('data: ') && !l.includes('[DONE]'));
