@@ -8,7 +8,6 @@ const crypto = require('crypto');
 
 const REGOLO_API_BASE = 'https://api.regolo.ai/v1';
 const REGOLO_SSO_TOKEN_URL = 'https://sso.regolo.ai/realms/regolo/protocol/openid-connect/token';
-const REGOLO_USAGE_LIMIT = 20000000;
 const API_KEY_ENV_VAR = 'REGOLO_API_KEY';
 
 
@@ -196,55 +195,47 @@ function saveConfig(cfg) {
   }, null, 2));
 }
 
-// --- Regolo Usage Tracking ---
-function loadRegoloUsage() {
-  const usagePath = path.join(__dirname, '..', '.config', 'usage.json');
-  try {
-    if (fs.existsSync(usagePath)) {
-      const data = JSON.parse(fs.readFileSync(usagePath, 'utf8'));
-      const today = new Date().toISOString().split('T')[0];
-      if (data.date === today) return { used: data.used || 0, date: today, totalAllTime: data.totalAllTime || 0 };
-    }
-  } catch (e) {}
-  return { used: 0, date: new Date().toISOString().split('T')[0], totalAllTime: 0 };
-}
-
-function saveRegoloUsage(used) {
-  const usagePath = path.join(__dirname, '..', '.config', 'usage.json');
-  try {
-    const dir = path.dirname(usagePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(usagePath, JSON.stringify({ date: new Date().toISOString().split('T')[0], used, totalAllTime: regoloUsage.totalAllTime || 0 }, null, 2));
-  } catch (e) { console.error('[Usage] Failed to save:', e.message); }
-}
-
+// --- In-Memory Usage Tracking ---
+const REGOLO_USAGE_LIMIT = 20000000;
 const REGOLO_AVG_COST_PER_TOKEN = 0.15 / 1000000; // ~$0.15/1M tokens avg
 
-let regoloUsage = loadRegoloUsage();
+let usageState = {
+  todayTokens: 0,
+  todayStr: '',
+  allTimeTokens: 0,
+};
 
-function isItalianMidnightPassed() {
+function getTodayKey() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   const italyOffset = 2;
   const italyNow = utc + italyOffset * 3600000;
   const italyDate = new Date(italyNow);
-  const todayStr = italyDate.toISOString().split('T')[0];
-  return regoloUsage.date !== todayStr;
+  return italyDate.toISOString().split('T')[0];
 }
 
-function resetRegoloUsageIfNeeded() {
-  if (isItalianMidnightPassed()) {
-    regoloUsage = { used: 0, date: new Date().toISOString().split('T')[0], totalAllTime: regoloUsage.totalAllTime || 0 };
-    saveRegoloUsage(0);
+function resetIfNewDay() {
+  const today = getTodayKey();
+  if (usageState.todayStr !== today) {
+    usageState.todayTokens = 0;
+    usageState.todayStr = today;
   }
 }
 
 function trackRegoloUsage(totalTokens) {
   if (!totalTokens || totalTokens <= 0) return;
-  resetRegoloUsageIfNeeded();
-  regoloUsage.used += totalTokens;
-  regoloUsage.totalAllTime = (regoloUsage.totalAllTime || 0) + totalTokens;
-  saveRegoloUsage(regoloUsage.used);
+  resetIfNewDay();
+  usageState.todayTokens += totalTokens;
+  usageState.allTimeTokens += totalTokens;
+}
+
+function getRegoloUsage() {
+  resetIfNewDay();
+  const used = usageState.todayTokens;
+  const limit = REGOLO_USAGE_LIMIT;
+  const percent = Math.min(100, (used / limit) * 100);
+  const apiTokens = regoloUserInfoCache?.totalTokens || 0;
+  return { used, limit, percent: Math.round(percent * 10) / 10, totalTokens: apiTokens };
 }
 
 let regoloUserInfoCache = null;
@@ -273,16 +264,6 @@ async function fetchRegoloUserInfo() {
     regoloUserInfoTime = Date.now();
     return regoloUserInfoCache;
   } catch (e) { return regoloUserInfoCache; }
-}
-
-function getRegoloUsage() {
-  resetRegoloUsageIfNeeded();
-  const limit = REGOLO_USAGE_LIMIT;
-  const used = regoloUsage.used;
-  const percent = Math.min(100, (used / limit) * 100);
-  const apiTokens = regoloUserInfoCache?.totalTokens || 0;
-  const totalTokens = Math.max(used, apiTokens);
-  return { used, limit, percent: Math.round(percent * 10) / 10, totalTokens };
 }
 
 // --- Italian midnight countdown ---
@@ -1848,14 +1829,12 @@ async function startServer(retryPort = null) {
     console.log(`[Warning] API key validation skipped: ${e.message}`);
   }
 
-  // Initialize usage from Regolo API, then keep syncing every 30min
-  async function syncUsageFromApi() {
+  // Keep syncing all-time total from API every 30min
+  async   function syncUsageFromApi() {
     try {
       const info = await fetchRegoloUserInfo();
       if (info && info.totalTokens > 0) {
-        regoloUsage.used = info.totalTokens;
-        regoloUsage.totalAllTime = Math.max(regoloUsage.totalAllTime || 0, info.totalTokens);
-        saveRegoloUsage(regoloUsage.used);
+        usageState.allTimeTokens = Math.max(usageState.allTimeTokens || 0, info.totalTokens);
       }
     } catch (e) { /* silent */ }
   }
