@@ -1,19 +1,19 @@
 # RegoloProxy
 
-OpenAI-compatible proxy server for [Regolo AI](https://regolo.ai). Zero external dependencies — uses only Node.js built-in modules.
-
-<img width="1026" height="801" alt="image" src="https://github.com/user-attachments/assets/0b19c2bc-53c3-43d2-b967-da1cbf08180a" />
+OpenAI-compatible proxy for [Regolo AI](https://regolo.ai) with **multi-account** support. Zero external dependencies.
 
 ## Features
 
-- **OpenAI-Compatible API** — Drop-in replacement for `/v1/chat/completions` and `/v1/models`
+- **OpenAI-Compatible API** — Drop-in for `/v1/chat/completions` and `/v1/models`
+- **Multi-Account** — Multiple Regolo accounts with independent SSO login, API keys, and per-account usage tracking
+- **Combined + Per-Account Dashboard** — AGNES-style glass box slideshow showing combined tokens across all accounts + per-account breakdown
 - **Model Search & Add** — Search the Regolo.ai catalog from the dashboard and add models with one click
-- **Response Caching** — LRU cache for non-streaming responses (configurable TTL and size)
+- **Response Caching** — LRU cache for non-streaming responses
 - **Multi-Key Rotation** — Round-robin API key rotation with session pinning
-- **Retry Logic** — Automatic retry on model-unavailable errors (up to 5 attempts)
-- **Dashboard** — Liquid glass UI with model search, key management, and usage tracking
-- **SSO Login** — Log in with your Regolo credentials from the dashboard to track token usage
-- **Bing Wallpaper** — Daily rotating backgrounds from Bing in the dashboard
+- **Retry Logic** — Automatic retry on model-unavailable errors
+- **Dashboard** — Liquid glass UI with account cards, key management, usage slideshow
+- **SSO Login** — Log in with Regolo credentials per account to track daily usage
+- **Bing Wallpaper** — Daily rotating backgrounds from Bing
 
 ## Quick Start
 
@@ -90,12 +90,34 @@ Open **http://localhost:8082** in your browser.
 - Manage multiple keys for rotation via the **Key Manager** modal (add, edit, delete).
 - Enable **Proxy API Keys** to restrict access to the proxy itself (auth required on requests).
 
-### SSO Login (Usage Tracking)
-Log in with your Regolo email/password in the **Regolo Login** section to see:
-- Daily token usage (resets at midnight Italian time)
-- Countdown to daily reset
-- Total tokens used / 20M limit with percentage bar
-- All-time token consumption
+### SSO Login + Multi-Account (Usage Tracking)
+
+The proxy supports **multiple Regolo accounts**. Configure them in `.config/config.json`:
+```json
+"ACCOUNTS": [
+  {
+    "email": "user1@example.com",
+    "password": "***",
+    "key": "sk-...",
+    "accessToken": "",
+    "refreshToken": ""
+  },
+  {
+    "email": "user2@example.com",
+    "password": "***",
+    "key": "sk-...",
+    "accessToken": "",
+    "refreshToken": ""
+  }
+]
+```
+
+**What you see in the dashboard:**
+- **Usage Slideshow** — Glass box with combined slide (total across all accounts) + per-account slides with dot navigation
+  - **Daily tokens** from Regolo API's `user_info.spend` (at $0.55/M rate) against 20M limit
+  - **Lifetime tokens** from each account's key spend (at $0.15/M rate)
+- **Account Cards** — One card per account with online status, usage % bar, and logout
+- **Auto-refresh** — Every 30 minutes via fresh SSO login per account
 
 ### Other Dashboard Features
 - **Response Cache** — View cache hits/misses/size, clear cache
@@ -122,6 +144,7 @@ Log in with your Regolo email/password in the **Regolo Login** section to see:
 | `MODEL_DISPLAY_NAMES` | Custom display names per model | `{}` |
 | `KEYS` | Array of `{name, key}` objects for rotation | `[{name, key}]` |
 | `API_KEYS` | Array of allowed proxy API keys (auth) | `[]` |
+| `ACCOUNTS` | Array of `{email, password, key, accessToken, refreshToken, lastLogin}` | `[]` |
 
 ### Environment Variables
 
@@ -158,7 +181,8 @@ set API_KEYS=key1,key2
 | `DELETE` | `/api/cache` | Clear cache |
 | `POST` | `/api/regolo/login` | SSO login with Regolo credentials |
 | `GET` | `/api/regolo/user` | Regolo login status |
-| `GET` | `/api/regolo/usage` | Daily token usage + limit + countdown |
+| `GET` | `/api/regolo/usage` | Combined + per-account daily + lifetime token usage |
+| `GET` | `/api/regolo/accounts-usage` | Raw per-account usage cache |
 | `POST` | `/api/regolo/logout` | Logout from Regolo SSO |
 | `POST` | `/api/regolo/dashboard-cookie` | Save dashboard.regolo.ai cookie for spend data |
 | `GET` | `/api/regolo/dashboard-data` | Fetch spend data via dashboard cookie |
@@ -172,9 +196,10 @@ The proxy automatically configures itself as an Opencode provider. After startin
 
 - **Find available models**: Use the dashboard search or `curl "http://localhost:8082/api/models/search?q=llama"`
 - **Add a model via API**: `curl -X POST http://localhost:8082/api/models/add -H "Content-Type: application/json" -d '{"models":["Llama-3.3-70B-Instruct"]}'`
-- **Monitor usage**: Log in via SSO in the dashboard to see daily token usage against the 20M limit
-- **Multiple API keys**: Add keys via the Key Manager for round-robin rotation with session pinning
+- **Multi-account monitoring**: Configure `ACCOUNTS[]` in config for per-account SSO login & usage tracking. The dashboard shows a combined + paged slideshow with daily tokens (from `user_info.spend`) and lifetime tokens (from key spend)
+- **Multiple API keys**: Add keys via the Key Manager for round-robin rotation with session pinning. Keys are auto-populated from ACCOUNTS
 - **Secure the proxy**: Set `API_KEYS` in config — all requests must then include `x-api-key` or `Authorization: Bearer <key>`
+- **Check per-account usage**: `curl http://localhost:8082/api/regolo/accounts-usage`
 
 ## License
 

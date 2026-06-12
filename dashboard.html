@@ -135,6 +135,40 @@
       text-transform: uppercase;
       letter-spacing: 1px;
     }
+    .usage-display {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+    }
+    .usage-bar-container {
+      width: 100%;
+      height: 22px;
+      min-height: 22px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .usage-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.55);
+      transition: width 0.5s ease;
+    }
+    .usage-bar-text {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+      pointer-events: none;
+    }
     .toast-container {
       position: fixed;
       top: 20px;
@@ -600,6 +634,52 @@
       font-variant-numeric: tabular-nums;
     }
     .test-chat-msg.user .test-chat-msg-role { color: rgba(50, 205, 50, 0.7); }
+    .plan-fieldset {
+      position: relative;
+      border: none;
+      border-radius: 12px;
+      padding: 16px 8px 8px;
+      margin-bottom: 20px;
+      background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+    }
+    .plan-fieldset-legend {
+      position: absolute;
+      top: -10px;
+      left: 16px;
+      background: #0d1117;
+      padding: 0 8px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      z-index: 5;
+    }
+    .plan-slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity 0.3s ease;
+    }
+    .plan-slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      position: relative;
+      visibility: visible;
+    }
+    .plan-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.3);
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .plan-dot.active {
+      background: rgba(255,255,255,0.8);
+    }
     .test-chat-empty {
       font-size: 11px;
       color: rgba(255,255,255,0.4);
@@ -713,37 +793,56 @@
       </div>
     </div>
 
-    <!-- USAGE ROW -->
-    <div class="row text-center d-flex align-items-stretch mb-2">
-      <div class="col-4">
-        <div class="stats-card card h-100 d-flex flex-column" data-glass>
-          <div class="glass-panel"></div>
-          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
-            <div class="stats-value" id="usedTokens" style="font-size:20px">0</div>
-            <div class="stats-label" style="font-size:9px">Today's Tokens</div>
+    <!-- USAGE ROW: COMBINED + PAGED ACCOUNTS (AGNES style) -->
+    <div class="plan-fieldset" data-glass id="planFieldset">
+      <div class="glass-panel"></div>
+      <span class="plan-fieldset-legend" id="planLegend">Usage</span>
+      <div id="planSlideshow" style="position:relative;min-height:120px">
+        <div class="plan-slide active" id="planSlide0">
+          <div class="row text-center align-items-stretch">
+            <div class="col-4" id="planColumn">
+              <div class="stats-card card h-100 d-flex flex-column" data-glass>
+                <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+                  <div class="stats-value" id="planName" style="font-size:18px">Loading...</div>
+                  <div class="stats-label" style="font-size:9px">Accounts</div>
+                  <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="planExpiry">--</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-4" id="fiveHourColumn">
+              <div class="stats-card card h-100 d-flex flex-column" data-glass>
+                <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+                  <div class="usage-display">
+                    <div class="stats-value" id="fiveHourUsage" style="font-size:18px">--</div>
+                    <div class="stats-label" style="font-size:9px">Today's Tokens</div>
+                    <div class="usage-bar-container">
+                      <div class="usage-bar-fill" id="fiveHourBar" style="width:0%"></div>
+                      <div class="usage-bar-text" id="fiveHourBarText"></div>
+                    </div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="fiveHourReset">--</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-4" id="weeklyColumn">
+              <div class="stats-card card h-100 d-flex flex-column" data-glass>
+                <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+                  <div class="usage-display">
+                    <div class="stats-value" id="weeklyUsage" style="font-size:18px">--</div>
+                    <div class="stats-label" style="font-size:9px">Total Tokens</div>
+                    <div class="usage-bar-container">
+                      <div class="usage-bar-fill" id="weeklyBar" style="width:0%"></div>
+                      <div class="usage-bar-text" id="weeklyBarText"></div>
+                    </div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="weeklyReset">--</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-      <div class="col-4">
-        <div class="stats-card card h-100 d-flex flex-column" data-glass>
-          <div class="glass-panel"></div>
-          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
-            <div class="stats-value" id="usagePercent" style="font-size:20px;color:#32CD32">0%</div>
-            <div class="stats-label" style="font-size:9px">Usage of 20M</div>
-            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px;font-variant-numeric:tabular-nums" id="resetTimer">--</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-4">
-        <div class="stats-card card h-100 d-flex flex-column" data-glass>
-          <div class="glass-panel"></div>
-          <div class="card-content flex-grow-1 justify-content-center align-items-center d-flex flex-column" style="padding:8px">
-            <div class="stats-value" id="totalSpend" style="font-size:20px;color:#58a6ff">0</div>
-            <div class="stats-label" style="font-size:9px">Total Tokens</div>
-            <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px" id="totalTokensAll">lifetime</div>
-          </div>
-        </div>
-      </div>
+      <div id="planDots" style="display:flex;justify-content:center;gap:6px;margin-top:8px;position:relative;z-index:5"></div>
     </div>
 
     <div class="row">
@@ -927,14 +1026,7 @@
           <div class="mb-3">
             <button class="btn btn-outline-action btn-sm w-100" onclick="openPlatformLoginModal()"><i class="bi bi-person-plus me-1"></i>Add Platform Account</button>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Dashboard Session Cookie</label>
-            <input type="text" class="form-control form-control-sm mb-2" id="dashboardCookieInput" placeholder="Paste token cookie from dashboard.regolo.ai">
-            <button class="btn btn-outline-action btn-sm w-100" onclick="saveDashboardCookie()"><i class="bi bi-cookie me-1"></i>Save Cookie &amp; Fetch Spend</button>
-            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">
-              Open DevTools → Application → Cookies → dashboard.regolo.ai → copy "token" value
-            </div>
-          </div>
+
         </div>
         <div class="modal-footer border-top-0">
           <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
@@ -1154,6 +1246,182 @@
     let config = {};
     let blurTokensEnabled = false;
 
+    // --- Multi-Account Slideshow ---
+    let planSlides = [];
+    let currentSlide = 0;
+    let accountUsages = [];
+
+    function buildSlideHTML(idx) {
+      const p = '_' + idx;
+      return `<div class="row text-center align-items-stretch">
+        <div class="col-4">
+          <div class="stats-card card h-100 d-flex flex-column" data-glass>
+            <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+              <div class="stats-value" id="planName${p}" style="font-size:18px">Loading...</div>
+              <div class="stats-label" style="font-size:9px">Account</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="planExpiry${p}">--</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="stats-card card h-100 d-flex flex-column" data-glass>
+            <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+              <div class="usage-display">
+                <div class="stats-value" id="fiveHourUsage${p}" style="font-size:18px">--</div>
+                <div class="stats-label" style="font-size:9px">Today's Tokens</div>
+                <div class="usage-bar-container">
+                  <div class="usage-bar-fill" id="fiveHourBar${p}" style="width:0%"></div>
+                  <div class="usage-bar-text" id="fiveHourBarText${p}"></div>
+                </div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="fiveHourReset${p}">--</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="stats-card card h-100 d-flex flex-column" data-glass>
+            <div class="card-content flex-grow-1 justify-content-center d-flex flex-column" style="padding:8px">
+              <div class="usage-display">
+                <div class="stats-value" id="weeklyUsage${p}" style="font-size:18px">--</div>
+                <div class="stats-label" style="font-size:9px">Total Tokens</div>
+                <div class="usage-bar-container">
+                  <div class="usage-bar-fill" id="weeklyBar${p}" style="width:0%"></div>
+                  <div class="usage-bar-text" id="weeklyBarText${p}"></div>
+                </div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:2px" id="weeklyReset${p}">--</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function goToSlide(idx) {
+      const slides = document.querySelectorAll('.plan-slide');
+      const dots = document.querySelectorAll('.plan-dot');
+      slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+      dots.forEach((d, i) => { if (i >= 0) d.classList.toggle('active', i === idx); });
+      currentSlide = idx;
+      if (planSlides[idx]) {
+        const legendEl = document.getElementById('planLegend');
+        legendEl.textContent = planSlides[idx].keyName;
+        legendEl.title = planSlides[idx].data?.email || '';
+      }
+    }
+
+    function renderCombined() {
+      const accounts = accountUsages.length > 0 ? accountUsages : [];
+      let totalUsed = 0;
+      let totalLimit = accounts.length * 20000000;
+      let accCount = 0;
+      let totalAllTime = 0;
+
+      for (const a of accounts) {
+        if (a.usage) {
+          totalUsed += a.usage.dailyTokens || 0;
+          totalAllTime += a.usage.totalTokens || 0;
+          accCount++;
+        }
+      }
+
+      const nameEl = document.getElementById('planName');
+      if (nameEl) {
+        const planLabel = accounts.length > 1 ? accounts.length + ' Accounts Combined' : (accounts.length === 1 ? '1 Account' : 'No Accounts');
+        nameEl.textContent = planLabel;
+        nameEl.setAttribute('title', planLabel);
+      }
+
+      const expiryEl = document.getElementById('planExpiry');
+      if (expiryEl) {
+        expiryEl.textContent = accCount + '/' + accounts.length + ' active';
+        expiryEl.style.color = accCount > 0 ? 'rgba(255,255,255,0.45)' : '#dc3545';
+      }
+
+      const pct = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
+      const fiveEl = document.getElementById('fiveHourUsage');
+      if (fiveEl) fiveEl.innerHTML = '<strong>' + pct.toFixed(1) + '%</strong>';
+
+      const fiveBarText = document.getElementById('fiveHourBarText');
+      if (fiveBarText) fiveBarText.textContent = '(' + totalUsed.toLocaleString() + '/' + totalLimit.toLocaleString() + ')';
+
+      const fiveBar = document.getElementById('fiveHourBar');
+      if (fiveBar) {
+        fiveBar.style.width = pct + '%';
+        fiveBar.style.background = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : 'rgba(255,255,255,0.6)';
+      }
+
+      const fiveReset = document.getElementById('fiveHourReset');
+      if (fiveReset) fiveReset.textContent = 'Across ' + accounts.length + ' accounts';
+
+      const weekEl = document.getElementById('weeklyUsage');
+      if (weekEl) weekEl.innerHTML = '<strong>' + totalAllTime.toLocaleString() + '</strong>';
+
+      const weekBar = document.getElementById('weeklyBar');
+      if (weekBar) {
+        weekBar.style.width = '100%';
+        weekBar.style.background = 'rgba(88,166,255,0.5)';
+      }
+
+      const weekBarText = document.getElementById('weeklyBarText');
+      if (weekBarText) weekBarText.textContent = 'lifetime';
+
+      const weekReset = document.getElementById('weeklyReset');
+      if (weekReset) weekReset.textContent = accounts.length + ' key' + (accounts.length !== 1 ? 's' : '');
+    }
+
+    function renderPlanInto(data, prefix) {
+      if (!data) return;
+      const p = prefix || '';
+      const nameEl = document.getElementById('planName' + p);
+      const expiryEl = document.getElementById('planExpiry' + p);
+
+      if (nameEl) {
+        nameEl.textContent = data.email || 'Account';
+        nameEl.style.color = data.loggedIn ? '#32CD32' : 'rgba(255,255,255,0.6)';
+        nameEl.setAttribute('title', data.email || '');
+      }
+      if (expiryEl) {
+        expiryEl.textContent = data.loggedIn ? 'SSO Online' : 'SSO Offline';
+        expiryEl.style.color = data.loggedIn ? 'rgba(255,255,255,0.45)' : '#dc3545';
+      }
+
+      if (data.usage) {
+        const accountLimit = 20000000;
+        const tokens = data.usage.dailyTokens || data.usage.totalTokens || 0;
+        const budget = accountLimit;
+        const usagePct = Math.min(100, (tokens / budget) * 100);
+        const fiveEl = document.getElementById('fiveHourUsage' + p);
+        if (fiveEl) fiveEl.innerHTML = '<strong>' + usagePct.toFixed(1) + '%</strong>';
+
+        const fiveBarText = document.getElementById('fiveHourBarText' + p);
+        if (fiveBarText) fiveBarText.textContent = '(' + tokens.toLocaleString() + '/' + budget.toLocaleString() + ')';
+
+        const fiveBar = document.getElementById('fiveHourBar' + p);
+        if (fiveBar) {
+          fiveBar.style.width = usagePct + '%';
+          fiveBar.style.background = usagePct > 80 ? '#dc3545' : usagePct > 50 ? '#ffd700' : 'rgba(255,255,255,0.6)';
+        }
+
+        const fiveReset = document.getElementById('fiveHourReset' + p);
+        if (fiveReset) fiveReset.textContent = (data.usage.userRole || 'user') + ' · ' + (data.usage.keys?.length || 0) + ' keys';
+      }
+
+      const weekEl = document.getElementById('weeklyUsage' + p);
+      if (weekEl) weekEl.innerHTML = '<strong>' + ((data.usage?.totalTokens || 0)).toLocaleString() + '</strong>';
+
+      const weekBar = document.getElementById('weeklyBar' + p);
+      if (weekBar) {
+        weekBar.style.width = '100%';
+        weekBar.style.background = 'rgba(88,166,255,0.5)';
+      }
+
+      const weekBarText = document.getElementById('weeklyBarText' + p);
+      if (weekBarText) weekBarText.textContent = 'lifetime';
+
+      const weekReset = document.getElementById('weeklyReset' + p);
+      if (weekReset) weekReset.textContent = data.keyPreview || '';
+    }
+
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
       toast.className = `toast align-items-center text-white bg-${type} border-0 show`;
@@ -1301,12 +1569,15 @@
 
     async function openKeysModal() {
       try {
-        const [keysResp, userResp] = await Promise.all([
+        const [keysResp, userResp, auResp] = await Promise.all([
           fetch('/api/keys'),
-          fetch('/api/regolo/user')
+          fetch('/api/regolo/user'),
+          fetch('/api/regolo/accounts-usage')
         ]);
         const keysData = await keysResp.json();
         const userData = await userResp.json();
+        const auData = await auResp.json();
+        accountUsages = auData.accounts || [];
         const keys = keysData.keys || [];
         document.getElementById('tokenCountBadge').textContent = keys.length;
         editingIndex = -1;
@@ -1320,72 +1591,97 @@
     function renderKeysList(keys, userData) {
       const container = document.getElementById('keysList');
       const blurClass = blurTokensEnabled ? 'token-blurred' : '';
-      const isLoggedIn = userData && userData.loggedIn;
-      const email = isLoggedIn ? (userData.email || userData.username || '') : '';
-      const lastLogin = isLoggedIn ? (userData.lastLogin || '') : '';
-      const lastLoginFmt = lastLogin ? new Date(lastLogin).toLocaleString() : '';
-      // Platform account card (AGNES style)
+
+      // Account cards (from accountUsages or userData)
       let usersHtml = '';
-      if (isLoggedIn) {
-        usersHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
-          <div class="d-flex justify-content-between align-items-center" style="margin-bottom:4px">
-            <span style="color:rgba(255,255,255,0.5)"><i class="bi bi-person-circle me-1"></i>Platform Account</span>
-            <div>
-              <span style="color:#32CD32;font-size:0.7rem;margin-right:8px"><i class="bi bi-check-circle-fill"></i> Online</span>
-              <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.7rem;padding:2px 8px" onclick="confirmLogout();bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide()"><i class="bi bi-box-arrow-right me-1"></i>Logout &amp; Remove</button>
+      const accs = accountUsages || [];
+      if (accs.length > 0) {
+        usersHtml = '<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>' +
+        accs.map(a => {
+          const tokens = a.usage ? (a.usage.dailyTokens || 0) : 0;
+          const pct = Math.min(100, (tokens / 20000000) * 100);
+          const pctStr = pct.toFixed(1) + '%';
+          const color = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : '#32CD32';
+          return `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:2px">
+              <span style="color:rgba(255,255,255,0.8)"><i class="bi bi-person-circle me-1"></i>${escapeHtml(a.email || 'Account')}</span>
+              <div>
+                <span style="color:${a.loggedIn ? '#32CD32' : '#dc3545'};font-size:0.65rem;margin-right:6px">${a.loggedIn ? 'Online' : 'Offline'}</span>
+                <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.6rem;padding:1px 6px;line-height:1.2" onclick="confirmLogout();bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide()"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+              </div>
             </div>
-          </div>
-          <div>User: <span class="${blurClass}">${escapeHtml(email)}</span></div>
-          <div>Email: <span>${escapeHtml(email)}</span></div>
-          <div>Status: <span style="color:#32CD32">Active</span></div>
-          ${lastLoginFmt ? `<div>Last login: <span>${escapeHtml(lastLoginFmt)}</span></div>` : ''}
-        </div>`;
-      } else {
-        usersHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
-          <div class="d-flex justify-content-between align-items-center">
-            <span class="text-muted"><i class="bi bi-person me-1"></i>No platform account</span>
-            <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.7rem;padding:2px 8px" onclick="bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide();setTimeout(openPlatformLoginModal,300)"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
-          </div>
-        </div>`;
-      }
-      const realKeys = (keys || []).filter(k => k.key);
-      if (!realKeys.length) {
-        container.innerHTML = usersHtml + '<p class="text-muted text-center py-3">No API keys configured.</p>';
-        return;
-      }
-      container.innerHTML = usersHtml + realKeys.map((k, i) => {
-        const origIdx = keys.indexOf(k);
-        if (editingIndex === origIdx) {
-          return `<div class="pool-card">
-            <div class="mb-2"><label class="form-label" style="font-size:10px">Name</label><input type="text" class="form-control form-control-sm" id="editKeyName" value="${escapeHtml(k.name || '')}"></div>
-            <div class="mb-2"><label class="form-label" style="font-size:10px">Key</label><input type="text" class="form-control form-control-sm" id="editKey" value="${escapeHtml(k.key || '')}"></div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-sm btn-success" onclick="saveEditKey(${origIdx})"><i class="bi bi-check me-1"></i>Save</button>
-              <button class="btn btn-sm btn-secondary" onclick="cancelEditKey()"><i class="bi bi-x me-1"></i>Cancel</button>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:3px">
+              <div style="flex:1;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
+              </div>
+              <span style="font-size:0.65rem;color:${color};white-space:nowrap">${pctStr}</span>
             </div>
+            <div style="font-size:0.6rem;color:rgba(255,255,255,0.35);margin-top:1px">${tokens.toLocaleString()} / 20M tokens</div>
           </div>`;
+        }).join('');
+      } else {
+        const isLoggedIn = userData && userData.loggedIn;
+        if (isLoggedIn) {
+          const email = userData.email || '';
+          usersHtml = `<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>
+            <div class="mb-2 p-2" style="background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+              <div class="d-flex justify-content-between align-items-center">
+                <span style="color:rgba(255,255,255,0.7)"><i class="bi bi-person-circle me-1"></i>${escapeHtml(email)}</span>
+                <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.65rem;padding:1px 8px" onclick="confirmLogout();bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide()"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+              </div>
+            </div>`;
+        } else {
+          usersHtml = `<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>
+            <div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted"><i class="bi bi-person me-1"></i>No account</span>
+                <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.65rem;padding:2px 8px" onclick="bootstrap.Modal.getInstance(document.getElementById('keysModal'))?.hide();setTimeout(openPlatformLoginModal,300)"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
+              </div>
+            </div>`;
         }
-        const maskedToken = k.key ? k.key.substring(0, 4) + '...' + k.key.substring(k.key.length - 4) : '';
-        const isDeleting = deleteIndex === origIdx;
-        return `<div class="pool-card">
-          <div class="pool-header">
-            <div class="pool-name">${escapeHtml(k.name || 'Unnamed')}</div>
-            <div>
-              <button class="btn btn-sm btn-outline-action me-1" onclick="startEditKey(${origIdx})" title="Edit"><i class="bi bi-pencil"></i></button>
-              <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none" onclick="startDeleteKey(${origIdx})" title="Delete"><i class="bi bi-trash"></i></button>
+      }
+
+      // Key cards
+      const realKeys = (keys || []).filter(k => k.key);
+      let keysHtml = '';
+      if (realKeys.length > 0) {
+        keysHtml = '<div class="mt-2" style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Key(s):</div>' +
+        realKeys.map((k, i) => {
+          const origIdx = keys.indexOf(k);
+          if (editingIndex === origIdx) {
+            return `<div class="pool-card">
+              <div class="mb-2"><label class="form-label" style="font-size:10px">Name</label><input type="text" class="form-control form-control-sm" id="editKeyName" value="${escapeHtml(k.name || '')}"></div>
+              <div class="mb-2"><label class="form-label" style="font-size:10px">Key</label><input type="text" class="form-control form-control-sm" id="editKey" value="${escapeHtml(k.key || '')}"></div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-success" onclick="saveEditKey(${origIdx})"><i class="bi bi-check me-1"></i>Save</button>
+                <button class="btn btn-sm btn-secondary" onclick="cancelEditKey()"><i class="bi bi-x me-1"></i>Cancel</button>
+              </div>
+            </div>`;
+          }
+          const maskedToken = k.key ? k.key.substring(0, 4) + '...' + k.key.substring(k.key.length - 4) : '';
+          const isDeleting = deleteIndex === origIdx;
+          return `<div class="pool-card">
+            <div class="pool-header">
+              <div class="pool-name">${escapeHtml(k.name || 'Unnamed')}</div>
+              <div>
+                <button class="btn btn-sm btn-outline-action me-1" onclick="startEditKey(${origIdx})" title="Edit"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none" onclick="startDeleteKey(${origIdx})" title="Delete"><i class="bi bi-trash"></i></button>
+              </div>
             </div>
-          </div>
-          <div style="font-size:0.8rem;color:rgba(255,255,255,0.7)">
-            <div>Key: <span class="${blurClass}" title="${escapeHtml(k.key)}">${maskedToken}</span></div>
-            <div>User: <span class="${blurClass}">${isLoggedIn ? escapeHtml(email) : 'None'}</span></div>
-          </div>
-          ${isDeleting ? `<div class="mt-2 d-flex gap-2 align-items-center" style="font-size:0.85rem;color:#dc3545"><i class="bi bi-exclamation-triangle"></i> Delete this key?</div>
-            <div class="d-flex gap-2 mt-1">
-              <button class="btn btn-sm" style="background:#dc3545;color:white;border:none" onclick="confirmDeleteKey(${origIdx})"><i class="bi bi-trash me-1"></i>Delete</button>
-              <button class="btn btn-sm btn-secondary" onclick="cancelDeleteKey()">Cancel</button>
-            </div>` : ''}
-        </div>`;
-      }).join('');
+            <div style="font-size:0.8rem;color:rgba(255,255,255,0.7)">
+              <div>Key: <span class="${blurClass}" title="${escapeHtml(k.key)}">${maskedToken}</span></div>
+            </div>
+            ${isDeleting ? `<div class="mt-2 d-flex gap-2 align-items-center" style="font-size:0.85rem;color:#dc3545"><i class="bi bi-exclamation-triangle"></i> Delete this key?</div>
+              <div class="d-flex gap-2 mt-1">
+                <button class="btn btn-sm" style="background:#dc3545;color:white;border:none" onclick="confirmDeleteKey(${origIdx})"><i class="bi bi-trash me-1"></i>Delete</button>
+                <button class="btn btn-sm btn-secondary" onclick="cancelDeleteKey()">Cancel</button>
+              </div>` : ''}
+          </div>`;
+        }).join('');
+      } else {
+        keysHtml = '<p class="text-muted text-center py-3">No API keys configured.</p>';
+      }
+      container.innerHTML = usersHtml + keysHtml;
     }
 
     async function addKey() {
@@ -1451,40 +1747,65 @@
       const container = document.getElementById('tokenPoolsContainer');
       const blurClass = blurTokensEnabled ? 'token-blurred' : '';
 
-      // Platform login card at the top
-      let platformHtml = '';
-      if (platformUserStatus.loggedIn) {
+      // Account cards (one per account)
+      let accountsHtml = '';
+      const accs = accountUsages || [];
+      if (accs.length > 0) {
+        accountsHtml = '<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>' +
+        accs.map(a => {
+          const tokens = a.usage ? (a.usage.dailyTokens || 0) : 0;
+          const pct = Math.min(100, (tokens / 20000000) * 100);
+          const pctStr = pct.toFixed(1) + '%';
+          const color = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : '#32CD32';
+          return `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:2px">
+              <span style="color:rgba(255,255,255,0.8);font-size:0.8rem"><i class="bi bi-person-circle me-1"></i>${escapeHtml(a.email || 'Account')}</span>
+              <div>
+                <span style="color:${a.loggedIn ? '#32CD32' : '#dc3545'};font-size:0.65rem;margin-right:6px">${a.loggedIn ? 'Online' : 'Offline'}</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
+              </div>
+              <span style="font-size:0.7rem;color:${color};white-space:nowrap">${pctStr}</span>
+            </div>
+            <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-top:1px">${tokens.toLocaleString()} / 20M tokens</div>
+          </div>`;
+        }).join('');
+      } else if (platformUserStatus.loggedIn) {
         const email = platformUserStatus.email || '';
-        const lastLogin = platformUserStatus.lastLogin || '';
-        const lastLoginFmt = lastLogin ? new Date(lastLogin).toLocaleString() : '';
-        platformHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
-          <div class="d-flex justify-content-between align-items-center" style="margin-bottom:4px">
-            <span style="color:rgba(255,255,255,0.5);font-size:0.75rem"><i class="bi bi-person-circle me-1"></i>Platform Account</span>
-            <span style="color:#32CD32;font-size:0.65rem"><i class="bi bi-check-circle-fill"></i> Online</span>
-          </div>
-          <div style="font-size:0.8rem;color:rgba(255,255,255,0.9)">${escapeHtml(email)}</div>
-          ${lastLoginFmt ? `<div style="font-size:0.65rem;color:rgba(255,255,255,0.5)">Last login: ${escapeHtml(lastLoginFmt)}</div>` : ''}
-          <div style="margin-top:4px"><button class="btn btn-sm" style="background:rgba(220,53,69,0.2);color:#dc3545;border:none;font-size:0.65rem;padding:1px 8px;width:100%" onclick="confirmLogout()"><i class="bi bi-box-arrow-right me-1"></i>Logout</button></div>
-        </div>`;
+        accountsHtml = `<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>
+          <div class="mb-2 p-2" style="background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:0.8rem">
+            <div class="d-flex justify-content-between align-items-center">
+              <span style="color:rgba(255,255,255,0.7)"><i class="bi bi-person-circle me-1"></i>${escapeHtml(email)}</span>
+              <span style="color:#32CD32;font-size:0.65rem"><i class="bi bi-check-circle-fill"></i> Online</span>
+            </div>
+          </div>`;
       } else {
-        platformHtml = `<div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
-          <div class="d-flex justify-content-between align-items-center">
-            <span class="text-muted" style="font-size:0.75rem"><i class="bi bi-person me-1"></i>No platform account</span>
-            <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.65rem;padding:1px 8px" onclick="openPlatformLoginModal()"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
-          </div>
-        </div>`;
+        accountsHtml = `<div style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Account(s):</div>
+          <div class="mb-2 p-2" style="background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.08);font-size:0.8rem">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="text-muted" style="font-size:0.75rem"><i class="bi bi-person me-1"></i>No account</span>
+              <button class="btn btn-sm" style="background:rgba(40,167,69,0.2);color:#28a745;border:none;font-size:0.65rem;padding:1px 8px" onclick="openPlatformLoginModal()"><i class="bi bi-box-arrow-in-right me-1"></i>Login</button>
+            </div>
+          </div>`;
       }
 
-      if (!proxyData || !proxyData.token_state || proxyData.token_state.length === 0) {
-        container.innerHTML = platformHtml + '<div class="text-center py-4"><i class="bi bi-key" style="font-size:2rem;color:rgba(255,255,255,0.4)"></i><p class="mt-2 text-muted">No tokens detected</p></div>';
-        return;
+      // Key pool cards
+      let keysHtml = '';
+      if (proxyData && proxyData.token_state && proxyData.token_state.length > 0) {
+        document.getElementById('tokenCountBadge').textContent = proxyData.token_state.length;
+        keysHtml = '<div class="mt-2" style="font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Key(s):</div>' +
+        proxyData.token_state.map(pool => {
+          const status = pool.status || 'none';
+          const statusClass = status === 'active' ? 'status-online' : 'status-offline';
+          return `<div class="pool-card"><div class="pool-header"><div class="pool-name">${pool.name}</div><div class="pool-status ${statusClass}">${status.charAt(0).toUpperCase() + status.slice(1)}</div></div><div style="font-size:0.8rem;color:rgba(255,255,255,0.7)"><span class="${blurClass}">${pool.token}</span></div></div>`;
+        }).join('');
+      } else {
+        keysHtml = '<div class="text-center py-4"><i class="bi bi-key" style="font-size:2rem;color:rgba(255,255,255,0.4)"></i><p class="mt-2 text-muted">No tokens detected</p></div>';
       }
-      document.getElementById('tokenCountBadge').textContent = proxyData.token_state.length;
-      container.innerHTML = platformHtml + proxyData.token_state.map(pool => {
-        const status = pool.status || 'none';
-        const statusClass = status === 'active' ? 'status-online' : 'status-offline';
-        return `<div class="pool-card"><div class="pool-header"><div class="pool-name">${pool.name}</div><div class="pool-status ${statusClass}">${status.charAt(0).toUpperCase() + status.slice(1)}</div></div><div style="font-size:0.8rem;color:rgba(255,255,255,0.7)"><span class="${blurClass}">${pool.token}</span></div></div>`;
-      }).join('');
+      container.innerHTML = accountsHtml + keysHtml;
     }
 
     // --- Load Configuration ---
@@ -1510,6 +1831,12 @@
         const enabledData = await enabledResp.json();
         const enabledModels = enabledData.models || [];
         renderModels(enabledModels);
+        // Fetch account usage data for initial render
+        try {
+          const auResp = await fetch('/api/regolo/accounts-usage');
+          const auData = await auResp.json();
+          accountUsages = auData.accounts || [];
+        } catch {}
         renderTokenPools();
         updateStats();
       } catch (error) {
@@ -1607,35 +1934,87 @@
       try {
         const resp = await fetch('/api/regolo/usage');
         const data = await resp.json();
-        const el = document.getElementById('usedTokens');
-        if (el) el.textContent = (data.used || 0).toLocaleString();
-        const pctEl = document.getElementById('usagePercent');
-        if (pctEl) {
-          const pct = data.percent || 0;
-          pctEl.textContent = pct.toFixed(1) + '%';
-          pctEl.style.color = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : '#32CD32';
-        }
-        const timerEl = document.getElementById('resetTimer');
-        if (timerEl && data.countdown) {
-          timerEl.textContent = 'Reset in ' + data.countdown;
-        }
-        const spendEl = document.getElementById('totalSpend');
-        if (spendEl && data.totalTokens !== undefined) {
-          if (data.totalTokens > 0) {
-            spendEl.textContent = data.totalTokens.toLocaleString(undefined, {maximumFractionDigits: 4});
-            spendEl.parentElement.parentElement.style.display = '';
-          } else {
-            spendEl.parentElement.parentElement.style.display = 'none';
+        // Update slideshow with account data
+        const fieldset = document.getElementById('planFieldset');
+        if (!fieldset) return;
+        const slideshow = document.getElementById('planSlideshow');
+        const dots = document.getElementById('planDots');
+        if (!slideshow || !dots) return;
+
+        accountUsages = data.accounts || [];
+        const hasAccounts = accountUsages.length > 0;
+
+        if (hasAccounts) {
+          // Remove old slides (keep slide 0)
+          slideshow.querySelectorAll('.plan-slide').forEach((s, i) => { if (i > 0) s.remove(); });
+          dots.innerHTML = '';
+
+          planSlides = [];
+          // Slide 0: combined
+          planSlides.push({ keyName: 'Combined', data: null });
+
+          // Per-account slides
+          for (let i = 0; i < accountUsages.length; i++) {
+            const slideDiv = document.createElement('div');
+            slideDiv.className = 'plan-slide';
+            slideDiv.id = 'planSlide' + (i + 1);
+            slideDiv.innerHTML = buildSlideHTML(i + 1);
+            slideshow.appendChild(slideDiv);
+            planSlides.push({ keyName: accountUsages[i].email || 'Account ' + (i + 1), data: accountUsages[i] });
           }
+
+          // Create dots
+          for (let i = 0; i < planSlides.length; i++) {
+            const dot = document.createElement('span');
+            dot.className = 'plan-dot' + (i === 0 ? ' active' : '');
+            dot.onclick = () => goToSlide(i);
+            dots.appendChild(dot);
+          }
+
+          // Render combined slide
+          renderCombined();
+
+          // Render each per-account slide
+          for (let i = 0; i < accountUsages.length; i++) {
+            renderPlanInto(accountUsages[i], '_' + (i + 1));
+          }
+
+          currentSlide = 0;
+          goToSlide(0);
+        } else {
+          // No accounts: show simple proxy usage in slide 0
+          planSlides = [{ keyName: 'Usage', data: null }];
+          const nameEl = document.getElementById('planName');
+          if (nameEl) {
+            nameEl.textContent = 'No Accounts';
+            nameEl.style.color = 'rgba(255,255,255,0.5)';
+          }
+          const expiryEl = document.getElementById('planExpiry');
+          if (expiryEl) expiryEl.textContent = 'Add accounts in config';
+          const fiveEl = document.getElementById('fiveHourUsage');
+          if (fiveEl) fiveEl.innerHTML = '<strong>' + (data.percent || 0).toFixed(1) + '%</strong>';
+          const fiveBarText = document.getElementById('fiveHourBarText');
+          if (fiveBarText) fiveBarText.textContent = '(' + (data.used || 0).toLocaleString() + '/' + (data.limit || '20M') + ')';
+          const fiveBar = document.getElementById('fiveHourBar');
+          if (fiveBar) {
+            const pct = data.percent || 0;
+            fiveBar.style.width = pct + '%';
+            fiveBar.style.background = pct > 80 ? '#dc3545' : pct > 50 ? '#ffd700' : 'rgba(255,255,255,0.6)';
+          }
+          const weekEl = document.getElementById('weeklyUsage');
+          if (weekEl) weekEl.innerHTML = '<strong>' + (data.totalTokens || 0).toLocaleString() + '</strong>';
+          const weekBar = document.getElementById('weeklyBar');
+          if (weekBar) { weekBar.style.width = '100%'; weekBar.style.background = 'rgba(88,166,255,0.5)'; }
+          const legendEl = document.getElementById('planLegend');
+          if (legendEl) { legendEl.textContent = 'Proxy'; legendEl.title = ''; }
         }
-        const totalEl = document.getElementById('totalTokensAll');
-        if (totalEl && data.totalTokens !== undefined) {
-          totalEl.style.display = data.totalTokens > 0 ? '' : 'none';
-        }
+
+        // Update legacy fields for backward compat
         regoloLoggedIn = data.loggedIn || false;
         regoloEmail = data.email || '';
         platformUserStatus = { loggedIn: regoloLoggedIn, email: regoloEmail, lastLogin: data.lastLogin || '' };
         renderTokenPools();
+
         // Update platform login button text
         const loginBtn = Array.from(document.querySelectorAll('.btn-outline-action'))
           .find(b => b.textContent.includes('Platform Login') || b.textContent.includes('@'));
@@ -1651,56 +2030,8 @@
       } catch (e) { /* silent */ }
     }
 
-    // --- Dashboard Cookie / Real Spend ---
-    async function saveDashboardCookie() {
-      const cookie = document.getElementById('dashboardCookieInput').value.trim();
-      if (!cookie) { showToast('Cookie value required', 'warning'); return; }
-      try {
-        const r = await fetch('/api/regolo/dashboard-cookie', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cookie })
-        });
-        const data = await r.json();
-        if (data.success) {
-          showToast('Cookie saved! Fetching spend data...', 'success');
-          fetchDashboardData();
-        } else { showToast('Failed: ' + (data.error || ''), 'danger'); }
-      } catch (e) { showToast('Error saving cookie', 'danger'); }
-    }
-
-    async function fetchDashboardData() {
-      try {
-        const r = await fetch('/api/regolo/dashboard-data');
-        const data = await r.json();
-        if (data.loggedIn && data.spend !== null) {
-          const spendEl = document.getElementById('totalSpend');
-          if (spendEl) spendEl.textContent = '$' + data.spend.toFixed(4);
-          const totalEl = document.getElementById('totalTokensAll');
-          if (totalEl && data.totalAmount) totalEl.textContent = '$' + data.totalAmount.toFixed(2) + ' total paid';
-          showToast('Dashboard spend: $' + data.spend.toFixed(4), 'success');
-        } else if (data.error) {
-          showToast('Dashboard: ' + data.error, 'warning');
-        }
-      } catch (e) { /* silent */ }
-    }
-
-    // Start periodic countdown update (client-side tick)
+    // Start periodic usage fetch
     let usageInterval = setInterval(fetchUsage, 5000);
-    // Also update countdown display locally for smooth ticking
-    setInterval(() => {
-      const timerEl = document.getElementById('resetTimer');
-      if (!timerEl || !timerEl.textContent.startsWith('Reset in')) return;
-      // Parse the current countdown
-      const match = timerEl.textContent.match(/(\d{2}):(\d{2}):(\d{2})/);
-      if (match) {
-        let h = parseInt(match[1]), m = parseInt(match[2]), s = parseInt(match[3]);
-        s--;
-        if (s < 0) { s = 59; m--; }
-        if (m < 0) { m = 59; h--; }
-        if (h < 0) { fetchUsage(); return; }
-        timerEl.textContent = `Reset in ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      }
-    }, 1000);
 
     async function sendTestChat() {
       if (testChatBusy) return;

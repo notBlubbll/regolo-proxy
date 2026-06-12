@@ -20,11 +20,9 @@ let config = null;
 let modelsCache = null;
 let userInfoCache = { data: null, time: 0, ttl: 60000 };
 let startTime = new Date();
-let currentTokenIndex = 0;
+let keyPool = null;
 let globalSessionCounter = 0;
-let conversationMap = new Map();
 let dashboardHtmlCache = null;
-const CONVERSATION_MAP_MAX = 10000;
 // --- Per-model rate limiting ---
 const RATE_LIMIT_MAP = {};
 const rateLimitTimestamps = new Map();
@@ -128,7 +126,13 @@ function loadConfig() {
   let baseURL = rawConfig.UPSTREAM_BASE_URL.trim().replace(/\/+$/, '');
 
   const primaryKey = rawConfig.API_KEY || process.env[API_KEY_ENV_VAR] || (Array.isArray(rawConfig.API_KEYS) && rawConfig.API_KEYS.length > 0 ? rawConfig.API_KEYS[0] : '');
-  const keys = primaryKey ? [{ name: 'Default', key: primaryKey, session: '' }] : [];
+  let keys = primaryKey ? [{ name: 'Default', key: primaryKey, session: '' }] : [];
+  const accounts = Array.isArray(rawConfig.ACCOUNTS) ? rawConfig.ACCOUNTS : [];
+  for (const acc of accounts) {
+    if (acc.key && !keys.some(k => k.key === acc.key)) {
+      keys.push({ name: acc.email || acc.name || `Account ${keys.length + 1}`, key: acc.key, session: '' });
+    }
+  }
   const apiKey = keys.length > 0 ? keys[0].key : (rawConfig.API_KEY || '');
 
   const rawModels = rawConfig.ENABLED_MODELS;
@@ -151,8 +155,8 @@ function loadConfig() {
     regoloAccessToken: rawConfig.REGOLO_ACCESS_TOKEN || '',
     regoloRefreshToken: rawConfig.REGOLO_REFRESH_TOKEN || '',
     regoloLastLogin: rawConfig.REGOLO_LAST_LOGIN || '',
-    regoloDashboardCookie: rawConfig.REGOLO_DASHBOARD_COOKIE || '',
-    dashboardSpend: rawConfig.DASHBOARD_SPEND || 0,
+
+    accounts: Array.isArray(rawConfig.ACCOUNTS) ? rawConfig.ACCOUNTS : [],
 
   };
 }
@@ -170,7 +174,7 @@ function parseDuration(str) {
 }
 
 function saveConfig(cfg) {
-  const configPath = path.join(__dirname, '..', '.config', 'config.json');
+  const configPath = path.join(__dirname, '.config', 'config.json');
   const dir = path.dirname(configPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const existing = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
@@ -190,8 +194,8 @@ function saveConfig(cfg) {
     REGOLO_ACCESS_TOKEN: cfg.regoloAccessToken || '',
     REGOLO_REFRESH_TOKEN: cfg.regoloRefreshToken || '',
     REGOLO_LAST_LOGIN: cfg.regoloLastLogin || '',
-    REGOLO_DASHBOARD_COOKIE: cfg.regoloDashboardCookie || '',
-    DASHBOARD_SPEND: cfg.dashboardSpend || 0,
+
+    ACCOUNTS: cfg.accounts || [],
 
   }, null, 2));
 }
@@ -199,6 +203,7 @@ function saveConfig(cfg) {
 // --- In-Memory Usage Tracking ---
 const REGOLO_USAGE_LIMIT = 20000000;
 const REGOLO_AVG_COST_PER_TOKEN = 0.15 / 1000000; // ~$0.15/1M tokens avg
+const REGOLO_AVG_COST_PER_TOKEN_DAILY = 0.55 / 1000000; // ~$0.55/1M for dashboard daily conversion
 
 let usageState = {
   todayTokens: 0,
@@ -267,6 +272,185 @@ async function fetchRegoloUserInfo() {
   } catch (e) { return regoloUserInfoCache; }
 }
 
+// --- Per-Account Usage Cache ---
+let accountUsageCache = [];
+let accountUsageCacheTime = 0;
+const ACCOUNT_USAGE_CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+// --- Cookie Jar for Keycloak session sharing ---
+let cookieJar = {};
+
+function storeCookies(resp) {
+  const setCookie = resp.headers.get('set-cookie');
+  if (!setCookie) return;
+  const cookies = setCookie.split(',').map(c => c.trim().split(';')[0]);
+  for (const c of cookies) {
+    const m = c.match(/^([^=]+)=(.+)$/);
+    if (m) cookieJar[m[1]] = m[2];
+  }
+}
+
+function getCookieString() {
+  return Object.entries(cookieJar).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+async function fetchWithCookies(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const cs = getCookieString();
+  if (cs) headers['Cookie'] = cs;
+  const resp = await fetch(url, { ...options, headers, redirect: 'manual' });
+  storeCookies(resp);
+  if (resp.status >= 300 && resp.status < 400 && options.followRedirect !== false) {
+    const loc = resp.headers.get('location');
+    if (loc) {
+      const locUrl = loc.startsWith('http') ? loc : new URL(loc, url).href;
+      return fetchWithCookies(locUrl, { ...options, followRedirect: false });
+    }
+  }
+  return resp;
+}
+
+async function fetchAccountDailyUsage(email, password) {
+  if (!email || !password) return null;
+  try {
+    // First, login to Keycloak with admin-cli to get SSO session
+    cookieJar = {};
+    const loginBody = new URLSearchParams({
+      grant_type: 'password', client_id: 'admin-cli',
+      username: email, password, scope: 'openid email profile'
+    });
+    const loginResp = await fetchWithCookies(REGOLO_SSO_TOKEN_URL, {
+      method: 'POST',
+      body: loginBody.toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    if (!loginResp.ok) return null;
+
+    // Now start the dashboard SSO flow - the Keycloak session should be recognized
+    let resp = await fetchWithCookies('https://api.regolo.ai/sso/key/generate');
+    let body = await resp.text();
+
+    // Continue following redirects until we get the dashboard HTML
+    for (let i = 0; i < 15; i++) {
+      if (resp.status === 200 && body.includes('__NUXT_DATA__')) break;
+      if (resp.status === 200 && (body.includes('login') || body.includes('Sign in'))) {
+        // Keycloak login page - submit credentials
+        const formMatch = body.match(/action="([^"]+login-actions\/authenticate[^"]+)"/);
+        if (!formMatch) return null;
+        let formAction = formMatch[1].replace(/&amp;/g, '&');
+        if (!formAction.startsWith('http')) formAction = 'https://sso.regolo.ai' + formAction;
+        const formData = new URLSearchParams();
+        formData.set('username', email);
+        formData.set('password', password);
+        const hiddenFields = body.match(/<input[^>]*type="hidden"[^>]*>/g) || [];
+        for (const f of hiddenFields) {
+          const n = f.match(/name="([^"]+)"/);
+          const v = f.match(/value="([^"]*)"/);
+          if (n) formData.set(n[1], v ? v[1] : '');
+        }
+        resp = await fetchWithCookies(formAction, {
+          method: 'POST', body: formData.toString(),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Origin': 'https://sso.regolo.ai', 'Referer': 'https://sso.regolo.ai/' },
+        });
+        body = await resp.text();
+        continue;
+      }
+      if (resp.status >= 300 && resp.status < 400) {
+        const loc = resp.headers.get('location');
+        if (!loc) return null;
+        const locUrl = loc.startsWith('http') ? loc : new URL(loc, 'https://api.regolo.ai').href;
+        resp = await fetchWithCookies(locUrl);
+        body = await resp.text();
+        continue;
+      }
+      break;
+    }
+
+    if (body.includes('__NUXT_DATA__')) {
+      const nuxtMatch = body.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>\s*(.*?)\s*<\/script>/);
+      if (nuxtMatch) {
+        const nd = nuxtMatch[1];
+        const sp = nd.match(/"spend":([0-9.-]+)/);
+        const ta = nd.match(/"total_amount":([0-9.-]+)/);
+        if (sp) {
+          const dailySpend = parseFloat(sp[1]);
+          const dailyTokens = dailySpend > 0 ? Math.round(dailySpend / REGOLO_AVG_COST_PER_TOKEN) : null;
+          return { dailyTokens, spend: dailySpend, totalAmount: ta ? parseFloat(ta[1]) : null };
+        }
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+async function fetchAccountUsage(account) {
+  const apiKey = account.key || '';
+  if (!apiKey) return null;
+  try {
+    const resp = await fetch('https://api.regolo.ai/user/info', {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return { email: account.email || '', totalTokens: 0, dailyTokens: 0, spend: 0, keyTotalSpend: 0, maxBudget: 0, userRole: '', keys: [] };
+    const data = await resp.json();
+    const rawSpend = data.user_info?.spend || 0;
+    const keySpend = data.keys?.[0]?.spend || 0;
+    const totalSpend = Math.max(rawSpend, keySpend);
+    const keyTotalSpend = data.keys?.[0]?.spend || 0;
+    const dailyTokens = rawSpend > 0 ? Math.round(rawSpend / REGOLO_AVG_COST_PER_TOKEN_DAILY) : 0;
+    const totalTokens = keyTotalSpend > 0 ? Math.round(keyTotalSpend / REGOLO_AVG_COST_PER_TOKEN) : 0;
+    return {
+      email: account.email || '',
+      totalTokens,
+      spend: rawSpend,
+      dailyTokens,
+      keyTotalSpend,
+      maxBudget: 0,
+      budgetResetAt: data.user_info?.budget_reset_at || null,
+      userRole: data.user_info?.user_role || '',
+      keys: (data.keys || []).map(k => ({ name: k.key_name || '', alias: k.key_alias || '', tokens: k.spend || 0 })),
+    };
+  } catch (e) { return null; }
+}
+
+async function refreshAllAccountUsage() {
+  const accounts = config?.accounts || [];
+  if (accounts.length === 0) return;
+  const results = [];
+  for (const acc of accounts) {
+    // Login each account separately to get fresh data
+    let accessToken = acc.accessToken;
+    if (acc.password) {
+      const loginResult = await regoloLogin(acc.email, acc.password);
+      if (loginResult.success) {
+        accessToken = loginResult.accessToken;
+        acc.accessToken = loginResult.accessToken;
+        acc.refreshToken = loginResult.refreshToken || acc.refreshToken;
+        acc.lastLogin = new Date().toISOString();
+      }
+    }
+    const usage = await fetchAccountUsage(acc);
+    results.push({
+      email: acc.email,
+      keyPreview: acc.key ? acc.key.substring(0, 8) + '...' : '',
+      usage,
+      loggedIn: !!accessToken,
+      lastLogin: acc.lastLogin || '',
+    });
+  }
+  accountUsageCache = results;
+  accountUsageCacheTime = Date.now();
+  if (accounts.length > 0) saveConfig(config);
+}
+
+function getAccountUsage() {
+  return {
+    cache: accountUsageCache,
+    cacheAge: Date.now() - accountUsageCacheTime,
+    accounts: config?.accounts?.map(a => ({ email: a.email, keyPreview: a.key ? a.key.substring(0, 8) + '...' : '', hasToken: !!a.accessToken })) || [],
+  };
+}
+
 // --- Italian midnight countdown ---
 function getItalianMidnightCountdown() {
   const now = new Date();
@@ -327,71 +511,86 @@ async function regoloLogin(username, password) {
 const TITLE_PROMPT_RE = /generate\s+a\s+title\s+for\s+this\s+conversation/i;
 const msgText = (m) => typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.find(p => p?.type === 'text')?.text || '' : '');
 
-// --- Session tracking ---
-function fingerprintPayload(payload) {
-  const msgs = payload.messages;
-  if (!Array.isArray(msgs)) return null;
-  let idx = msgs.findIndex(m => m.role === 'user' && !TITLE_PROMPT_RE.test(msgText(m)));
-  if (idx < 0) idx = msgs.findIndex(m => m.role === 'user');
-  if (idx < 0) return null;
-  const raw = msgText(msgs[idx]);
-  const stripped = raw.replace(/^\[[^\]]+\]\s*/, '');
-  return crypto.createHash('md5').update(stripped).digest('hex').slice(0, 12);
+class KeyPool {
+  constructor(keys) {
+    this._entries = keys.map(k => ({ key: k.key, name: k.name, healthy: true, lastError: 0, cooldownMs: 30000 }));
+    this._index = 0;
+    this._mutex = Promise.resolve();
+  }
+
+  _lock(fn) {
+    let release;
+    const p = new Promise(r => release = r);
+    const old = this._mutex;
+    this._mutex = p;
+    return old.then(() => { try { return fn(); } finally { release(); } });
+  }
+
+  acquire() {
+    return this._lock(() => {
+      if (this._entries.length === 0) return null;
+      const now = Date.now();
+      for (let attempt = 0; attempt < this._entries.length; attempt++) {
+        const idx = this._index++ % this._entries.length;
+        const entry = this._entries[idx];
+        if (entry.healthy || now - entry.lastError > entry.cooldownMs) {
+          entry.healthy = true;
+          config.apiKey = entry.key;
+          if (upstream) upstream.apiKey = entry.key;
+          return { key: entry.key, name: entry.name, index: idx };
+        }
+      }
+      return null;
+    });
+  }
+
+  markUnhealthy(index) {
+    const entry = this._entries[index];
+    if (entry) { entry.healthy = false; entry.lastError = Date.now(); }
+  }
+
+  markHealthy(index) {
+    const entry = this._entries[index];
+    if (entry) { entry.healthy = true; entry.lastError = 0; }
+  }
+
+  get total() { return this._entries.length; }
+
+  get healthyCount() {
+    const now = Date.now();
+    return this._entries.filter(e => e.healthy || now - e.lastError > e.cooldownMs).length;
+  }
+
+  get state() {
+    const now = Date.now();
+    return this._entries.map((e, i) => {
+      const cool = !e.healthy ? Math.max(0, e.cooldownMs - (now - e.lastError)) : 0;
+      let status = 'none';
+      if (e.key) {
+        if (e.healthy || cool === 0) status = 'active';
+        else status = 'cooldown';
+      }
+      return {
+        name: e.name,
+        status,
+        healthy: e.healthy,
+        remainingCooldown: cool,
+        token: e.key ? e.key.substring(0, 10) + '...' + e.key.substring(e.key.length - 4) : '',
+      };
+    });
+  }
 }
 
-function detectSessionSignal(payload) {
-  const tokens = config.keys || [];
-  if (tokens.length < 1) return null;
-
-  if (tokens.length === 1) {
-    const msgs = payload.messages;
-    if (!Array.isArray(msgs)) return null;
-    const firstUserIdx = msgs.findIndex(m => m.role === 'user' && !TITLE_PROMPT_RE.test(msgText(m)));
-    if (firstUserIdx < 0) return null;
-    const sessNum = ++globalSessionCounter;
-    const m = msgs[firstUserIdx];
-    const label = `${tokens[0].name}|sess${sessNum}`;
-    const setter = (c) => { if (typeof c === 'string') return `[${label}] ${c}`; if (Array.isArray(c)) { const b = c.find(p => p?.type === 'text'); if (b) b.text = `[${label}] ${b.text}`; } return c; };
-    m.content = setter(m.content);
-    return { sessNum };
-  }
-
-  const fingerprint = fingerprintPayload(payload);
-  if (!fingerprint) return null;
-
-  const entry = conversationMap.get(fingerprint);
-  if (entry !== undefined) {
-    entry.requestCount++;
-    const idx = (entry.keyIndex !== undefined && entry.keyIndex < tokens.length) ? entry.keyIndex : 0;
-    if (idx !== currentTokenIndex) {
-      currentTokenIndex = idx;
-      config.apiKey = tokens[currentTokenIndex].key;
-      if (upstream) upstream.apiKey = tokens[currentTokenIndex].key;
-    }
-    return entry;
-  }
-
-  if (tokens.length > 1) {
-    currentTokenIndex = (currentTokenIndex + 1) % tokens.length;
-    config.apiKey = tokens[currentTokenIndex].key;
-    if (upstream) upstream.apiKey = tokens[currentTokenIndex].key;
-  }
-  const newEntry = { tokenIndex: currentTokenIndex, requestCount: 1, sessNum: ++globalSessionCounter };
-  conversationMap.set(fingerprint, newEntry);
-  if (conversationMap.size > CONVERSATION_MAP_MAX) {
-    const oldest = conversationMap.keys().next().value;
-    conversationMap.delete(oldest);
-  }
-
-  const msgs = payload.messages;
-  let stampIdx = msgs.findIndex(m => m.role === 'user' && !TITLE_PROMPT_RE.test(msgText(m)));
-  if (stampIdx < 0) stampIdx = msgs.findIndex(m => m.role === 'user');
-  const m = msgs[stampIdx];
-  const curIdx = currentTokenIndex;
-  const label = `${tokens[curIdx].name}|sess${newEntry.sessNum}`;
+function stampSessionLabel(payload, name, sessNum) {
+  const msgs = payload?.messages;
+  if (!Array.isArray(msgs)) return;
+  let idx = msgs.findIndex(m => m.role === 'user' && !TITLE_PROMPT_RE.test(msgText(m)));
+  if (idx < 0) idx = msgs.findIndex(m => m.role === 'user');
+  if (idx < 0) return;
+  const m = msgs[idx];
+  const label = `${name}|sess${sessNum}`;
   const setter = (c) => { if (typeof c === 'string') return `[${label}] ${c}`; if (Array.isArray(c)) { const b = c.find(p => p?.type === 'text'); if (b) b.text = `[${label}] ${b.text}`; } return c; };
   m.content = setter(m.content);
-  return newEntry;
 }
 
 // --- Upstream Client ---
@@ -1121,27 +1320,20 @@ async function handleHealthz(req, res) {
     try { modelsData = await upstream.getUserInfo(); userInfoCache = { data: modelsData, time: Date.now(), ttl: 60000 }; }
     catch (e) { modelsData = userInfoCache.data; }
   }
-  const tokenState = (config.keys || []).map(t => {
-    const maskedToken = t.key ? t.key.substring(0, 10) + '...' + t.key.substring(t.key.length - 4) : '';
-    return {
-      name: t.name || 'Unnamed Key',
-      key: maskedToken,
-      status: t.key ? (modelsData ? 'active' : 'unknown') : 'none',
-    };
-  });
+  const poolState = keyPool?.state || [];
   writeJSON(res, 200, {
     ok: true,
     started_at: startTime.toISOString(),
     uptime_sec: Math.floor((Date.now() - startTime.getTime()) / 1000),
     api_key_valid: !!modelsData,
     provider: 'regolo',
-    token_state: tokenState,
-    valid_tokens: tokenState.filter(t => t.status !== 'none').length,
+    token_state: poolState,
+    valid_tokens: keyPool?.healthyCount || 0,
+    total_tokens: keyPool?.total || 0,
     models_count: (config.enabledModels || []).length,
     runtime: IS_BUN ? 'bun' : 'node',
     runtime_version: RUNTIME_VERSION,
     cache: { ...responseCache.stats, enabled: config.cacheEnabled },
-
   });
 }
 
@@ -1180,9 +1372,11 @@ async function handleChatCompletions(req, res) {
 async function proxyChatRequest(res, payload, requestedModel, writeError, writeUpstreamError) {
   const reqStart = Date.now();
 
-  const session = detectSessionSignal(payload);
+  const slot = await keyPool.acquire();
+  if (!slot) { writeError(res, 503, 'no healthy API keys available', 'server_error', 'no_healthy_keys'); return; }
 
-  if (!config.apiKey) { writeError(res, 503, 'no API key configured', 'server_error', 'no_api_key'); return; }
+  const sessNum = ++globalSessionCounter;
+  stampSessionLabel(payload, slot.name, sessNum);
 
   const cacheEnabled = config.cacheEnabled && !payload.stream;
   let ck;
@@ -1190,21 +1384,16 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
     ck = cacheKey(payload, requestedModel);
     const cached = responseCache.get(ck);
     if (cached) {
-      const tokens = config.keys || [];
-      const name = tokens.length > 0 ? tokens[0].name : '?';
       const promptPreview = extractUserPrompt(payload).substring(0, 80);
-      console.log(`${reqStart} [${name}]-[${requestedModel}]-cache:HIT ${promptPreview}`);
+      console.log(`${reqStart} [${slot.name}]-[${requestedModel}]-cache:HIT ${promptPreview}`);
       try { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(cached); }
       catch (e) { /* ignore */ }
       return;
     }
   }
 
-  const tokens = config.keys || [];
-  const name = tokens.length > 0 ? tokens[0].name : '?';
-  const sessNum = session?.sessNum || '?';
   const promptPreview = extractUserPrompt(payload).substring(0, 80);
-  console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-${promptPreview}`);
+  console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-${promptPreview}`);
 
   payload.model = requestedModel;
   // Set max_tokens based on model output limit
@@ -1231,12 +1420,13 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
       try {
         resp = await upstream.chatCompletions(payload);
       } catch (e) {
+        keyPool.markUnhealthy(slot.index);
         writeError(res, 502, e.message, 'server_error', '');
         return { retry: false };
       }
 
       const contentType = resp.headers['content-type'] || '';
-      console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-upstream:${resp.status} ct:${contentType} round:${toolRound}`);
+      console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-upstream:${resp.status} ct:${contentType} round:${toolRound}`);
 
       if (resp.status >= 200 && resp.status < 300) {
         try {
@@ -1280,7 +1470,7 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
               const truncated = finishLines.find(l => l.includes('"length"'));
               if (truncated) {
                 const p = JSON.parse(truncated.slice(6));
-                console.warn(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-TRUNCATED: model hit output token limit`);
+                console.warn(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-TRUNCATED: model hit output token limit`);
               }
             } catch {}
             // Track token usage from stream (last data line with usage)
@@ -1294,7 +1484,7 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
             } catch {}
             if (isModelUnavailableError(fullText)) {
               if (isLast) {
-                console.error(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-error:200-stream-FINAL`);
+                console.error(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-error:200-stream-FINAL`);
                 writeUpstreamError(res, 503, fullText);
                 return { retry: false };
               }
@@ -1303,7 +1493,7 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
             if (fullText.includes('_fp_') && toolRound < MAX_TOOL_ROUNDS - 1) {
               const toolCalls = extractProxyToolCalls(fullText);
               if (toolCalls.length > 0) {
-                console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-proxy-tools:${toolCalls.map(tc => tc.function.name).join(',')}`);
+                console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-proxy-tools:${toolCalls.map(tc => tc.function.name).join(',')}`);
                 const results = toolCalls.map(tc => {
                   let args = {};
                   try { args = JSON.parse(tc.function.arguments); } catch {}
@@ -1318,7 +1508,7 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
             const bodyText = await readBodyText(resp.body);
             if (hasProxyToolCalls(bodyText) && toolRound < MAX_TOOL_ROUNDS - 1) {
               const toolCalls = extractProxyToolCalls(bodyText);
-              console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-proxy-tools:${toolCalls.map(tc => tc.function.name).join(',')}`);
+              console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-proxy-tools:${toolCalls.map(tc => tc.function.name).join(',')}`);
               const results = toolCalls.map(tc => {
                 let args = {};
                 try { args = JSON.parse(tc.function.arguments); } catch {}
@@ -1341,17 +1531,17 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
             lastBodyText = normalizedBodyText;
             // Track token usage
             try { const u = JSON.parse(normalizedBodyText); if (u.usage?.total_tokens) trackRegoloUsage(u.usage.total_tokens); } catch {}
-            console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-body:${normalizedBodyText.substring(0, 800)}`);
+            console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-body:${normalizedBodyText.substring(0, 800)}`);
           }
         } catch (e) { console.error(`proxy response copy failed: ${e.message}`); return { retry: false }; }
-        console.log(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-done:${Date.now() - reqStart}ms`);
+        console.log(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-done:${Date.now() - reqStart}ms`);
         return { retry: false };
       }
 
       const errorBodyStr = await readBodyText(resp.body);
       if (isModelUnavailableError(errorBodyStr)) {
         if (isLast) {
-          console.error(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-error:${resp.status}-FINAL`);
+          console.error(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-error:${resp.status}-FINAL`);
           writeUpstreamError(res, resp.status, errorBodyStr);
           return { retry: false };
         }
@@ -1359,13 +1549,14 @@ async function proxyChatRequest(res, payload, requestedModel, writeError, writeU
       }
       if (RATE_LIMIT_MAP[requestedModel] && isRateLimitError(resp.status, errorBodyStr)) {
         if (isLast) {
-          console.error(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-429-FINAL`);
+          console.error(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-429-FINAL`);
           writeUpstreamError(res, 429, errorBodyStr);
           return { retry: false };
         }
         return { retry: true };
       }
-      console.error(`${reqStart} [Session#${sessNum}>${name}]-[${requestedModel}]-error:${resp.status}`);
+      if (resp.status >= 500) keyPool.markUnhealthy(slot.index);
+      console.error(`${reqStart} [Session#${sessNum}>${slot.name}]-[${requestedModel}]-error:${resp.status}`);
       writeUpstreamError(res, resp.status, errorBodyStr);
       return { retry: false };
     });
@@ -1458,7 +1649,10 @@ async function handleRequest(req, res) {
         if (newConfig.listenAddr) config.listenAddr = newConfig.listenAddr;
         if (Array.isArray(newConfig.enabledModels)) config.enabledModels = newConfig.enabledModels;
         if (newConfig.modelDisplayNames && typeof newConfig.modelDisplayNames === 'object') config.modelDisplayNames = newConfig.modelDisplayNames;
-        if (Array.isArray(newConfig.keys)) config.keys = newConfig.keys;
+        if (Array.isArray(newConfig.keys)) {
+          config.keys = newConfig.keys;
+          keyPool = new KeyPool(config.keys.filter(k => k.key));
+        }
 
         saveConfig(config);
         setupOpencodeConfig();
@@ -1636,6 +1830,7 @@ async function handleRequest(req, res) {
           if (!config.keys) config.keys = [];
           config.keys.push({ name: data.name || `Key ${config.keys.length + 1}`, key: data.key || '', session: '' });
           if (!config.apiKey && data.key) config.apiKey = data.key;
+          keyPool = new KeyPool(config.keys.filter(k => k.key));
           saveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
@@ -1644,6 +1839,7 @@ async function handleRequest(req, res) {
           if (data.name !== undefined) config.keys[data.index].name = data.name;
           if (data.key !== undefined) config.keys[data.index].key = data.key;
           if (data.index === 0 && config.keys[0].key) config.apiKey = config.keys[0].key;
+          keyPool = new KeyPool(config.keys.filter(k => k.key));
           saveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
@@ -1652,6 +1848,7 @@ async function handleRequest(req, res) {
           config.keys.splice(data.index, 1);
           if (config.keys.length === 0) config.keys.push({ name: 'Key 1', key: '', session: '' });
           if (data.index === 0) config.apiKey = config.keys[0].key || '';
+          keyPool = new KeyPool(config.keys.filter(k => k.key));
           saveConfig(config);
           setupOpencodeConfig();
           writeJSON(res, 200, { success: true, keys: config.keys });
@@ -1681,6 +1878,22 @@ async function handleRequest(req, res) {
         config.regoloAccessToken = result.accessToken;
         config.regoloRefreshToken = result.refreshToken;
         config.regoloLastLogin = new Date().toISOString();
+        // Also save into ACCOUNTS array
+        if (!config.accounts) config.accounts = [];
+        const existingIdx = config.accounts.findIndex(a => a.email === username);
+        const accEntry = {
+          email: username,
+          password,
+          key: config.keys?.[0]?.key || config.apiKey || '',
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken || '',
+          lastLogin: config.regoloLastLogin,
+        };
+        if (existingIdx >= 0) {
+          config.accounts[existingIdx] = { ...config.accounts[existingIdx], ...accEntry };
+        } else {
+          config.accounts.push(accEntry);
+        }
         saveConfig(config);
         writeJSON(res, 200, { success: true, email: result.email, lastLogin: config.regoloLastLogin });
       } else {
@@ -1691,12 +1904,14 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === '/api/regolo/user' && req.method === 'GET') {
-    const loggedIn = !!(config.regoloAccessToken);
+    const anyAccountToken = config?.accounts?.some(a => !!a.accessToken) || false;
+    const loggedIn = !!(config.regoloAccessToken) || anyAccountToken;
     writeJSON(res, 200, {
       loggedIn,
-      username: config.regoloUsername || '',
-      email: config.regoloUsername || '',
+      username: config.regoloUsername || config?.accounts?.[0]?.email || '',
+      email: config.regoloUsername || config?.accounts?.[0]?.email || '',
       lastLogin: config.regoloLastLogin || '',
+      accountCount: config?.accounts?.length || 0,
     });
     return;
   }
@@ -1706,9 +1921,47 @@ async function handleRequest(req, res) {
       await fetchRegoloUserInfo();
       const usage = getRegoloUsage();
       const countdown = getItalianMidnightCountdown();
-      const loggedIn = !!(config.regoloAccessToken);
-      let email = config.regoloUsername || '';
-      writeJSON(res, 200, { ...usage, countdown, loggedIn, email });
+      const anyAccountToken = config?.accounts?.some(a => !!a.accessToken) || false;
+      const loggedIn = !!(config.regoloAccessToken) || anyAccountToken;
+      let email = config.regoloUsername || config?.accounts?.[0]?.email || '';
+      // Combine account usages if available
+      let combined = null;
+      let accountsData = [];
+      const accts = config?.accounts || [];
+      if (accts.length > 0) {
+        if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
+          await refreshAllAccountUsage();
+        }
+        accountsData = accountUsageCache;
+        let totalUsed = 0;
+        let totalLimit = accts.length * REGOLO_USAGE_LIMIT;
+        let accCount = 0;
+        for (const a of accountsData) {
+          if (a.usage) {
+            totalUsed += a.usage.totalTokens || 0;
+            accCount++;
+          }
+        }
+        const combinedPercent = totalLimit > 0 ? Math.min(100, (totalUsed / totalLimit) * 100) : 0;
+        combined = {
+          used: totalUsed,
+          limit: totalLimit,
+          percent: Math.round(combinedPercent * 10) / 10,
+          accountCount: accCount,
+        };
+      }
+      writeJSON(res, 200, { ...usage, countdown, loggedIn, email, combined, accounts: accountsData });
+    })();
+    return;
+  }
+
+  if (pathname === '/api/regolo/accounts-usage' && req.method === 'GET') {
+    (async () => {
+      const accts = config?.accounts || [];
+      if (Date.now() - accountUsageCacheTime > ACCOUNT_USAGE_CACHE_TTL || accountUsageCache.length === 0) {
+        await refreshAllAccountUsage();
+      }
+      writeJSON(res, 200, { accounts: accountUsageCache });
     })();
     return;
   }
@@ -1717,63 +1970,13 @@ async function handleRequest(req, res) {
     config.regoloAccessToken = '';
     config.regoloRefreshToken = '';
     config.regoloLastLogin = '';
-    config.regoloDashboardCookie = '';
-    config.dashboardSpend = 0;
+
     saveConfig(config);
     writeJSON(res, 200, { success: true });
     return;
   }
 
-  // --- Dashboard cookie for fetching real spend/usage from dashboard.regolo.ai ---
-  if (pathname === '/api/regolo/dashboard-cookie' && req.method === 'POST') {
-    try {
-      const body = await readBody(req);
-      const { cookie } = JSON.parse(body);
-      if (!cookie) { writeJSON(res, 400, { error: 'Cookie required' }); return; }
-      config.regoloDashboardCookie = cookie;
-      saveConfig(config);
-      writeJSON(res, 200, { success: true });
-    } catch (e) { writeJSON(res, 400, { error: e.message }); }
-    return;
-  }
 
-  if (pathname === '/api/regolo/dashboard-data' && req.method === 'GET') {
-    (async () => {
-      if (!config.regoloDashboardCookie) {
-        writeJSON(res, 200, { spend: null, totalAmount: null, email: null, loggedIn: false });
-        return;
-      }
-      try {
-        const resp = await fetch('https://dashboard.regolo.ai/api-keys', {
-          headers: {
-            'Cookie': `token=${config.regoloDashboardCookie}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/json',
-          },
-          signal: AbortSignal.timeout(15000),
-        });
-        const html = await resp.text();
-        const nuxtMatch = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>\s*(.*?)\s*<\/script>/);
-        if (nuxtMatch) {
-          const nuxtData = nuxtMatch[1];
-          const spendMatch = nuxtData.match(/"spend":([0-9.-]+)/);
-          const totalMatch = nuxtData.match(/"total_amount":([0-9.-]+)/);
-          const emailMatch = nuxtData.match(/"user_email":"([^"]+)"/);
-          const spend = spendMatch ? parseFloat(spendMatch[1]) : null;
-          const totalAmount = totalMatch ? parseFloat(totalMatch[1]) : null;
-          const email = emailMatch ? emailMatch[1] : null;
-          config.dashboardSpend = spend || 0;
-          saveConfig(config);
-          writeJSON(res, 200, { spend, totalAmount, email, loggedIn: true });
-        } else {
-          writeJSON(res, 200, { spend: null, totalAmount: null, email: null, loggedIn: false, error: 'Session expired. Re-login to dashboard.' });
-        }
-      } catch (e) {
-        writeJSON(res, 502, { error: e.message });
-      }
-    })();
-    return;
-  }
 
   if (pathname === '/healthz') { await handleHealthz(req, res); return; }
   if (pathname === '/v1/models') { await handleModels(req, res); return; }
@@ -1861,11 +2064,30 @@ async function startServer(retryPort = null) {
     console.log('[Warning] No API key configured. Set REGOLO_API_KEY env var or add API_KEY to .config/config.json');
   }
 
+  const poolKeys = (config.keys || []).filter(k => k.key);
+  keyPool = new KeyPool(poolKeys.length > 0 ? poolKeys : [{ name: 'Default', key: config.apiKey || '' }]);
+
   upstream = new UpstreamClient(config);
   try {
     await validateApiKey();
   } catch (e) {
     console.log(`[Warning] API key validation skipped: ${e.message}`);
+  }
+
+  // Migrate old-style single account into ACCOUNTS array
+  if (config.regoloUsername && config.regoloPassword) {
+    const exists = config.accounts.some(a => a.email === config.regoloUsername);
+    if (!exists) {
+      config.accounts.unshift({
+        email: config.regoloUsername,
+        password: config.regoloPassword,
+        key: config.keys?.[0]?.key || config.apiKey || '',
+        accessToken: config.regoloAccessToken || '',
+        refreshToken: config.regoloRefreshToken || '',
+        lastLogin: config.regoloLastLogin || '',
+      });
+      saveConfig(config);
+    }
   }
 
   // Keep syncing all-time total from API every 30min
@@ -1874,6 +2096,10 @@ async function startServer(retryPort = null) {
       const info = await fetchRegoloUserInfo();
       if (info && info.totalTokens > 0) {
         usageState.allTimeTokens = Math.max(usageState.allTimeTokens || 0, info.totalTokens);
+      }
+      // Also refresh multi-account usage
+      if (config.accounts && config.accounts.length > 0) {
+        await refreshAllAccountUsage();
       }
     } catch (e) { /* silent */ }
   }
@@ -1913,7 +2139,7 @@ async function startServer(retryPort = null) {
     console.log(`\nRegoloProxy on http://127.0.0.1:${port}`);
     console.log(`  Provider: Regolo AI`);
     console.log(`  Upstream: ${config.upstreamBaseURL}`);
-    console.log(`  API Key: ${config.apiKey ? 'configured (' + config.apiKey.substring(0, 10) + '...)' : 'NOT SET'}`);
+    console.log(`  Key Pool: ${keyPool?.total || 0} key(s), ${keyPool?.healthyCount || 0} healthy`);
     console.log(`  Enabled Models: ${(config.enabledModels || []).length} (search & add via dashboard)`);
     console.log(`  Response Cache: ${config.cacheEnabled ? 'enabled (' + config.cacheMaxSize + ' entries, ' + (config.cacheTtl / 1000) + 's TTL)' : 'disabled'}`);
     console.log(`  Proxy API Keys: ${config.apiKeys.length > 0 ? config.apiKeys.length + ' (auth enabled)' : 'none (open access)'}`);
