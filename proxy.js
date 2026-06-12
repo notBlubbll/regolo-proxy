@@ -886,6 +886,7 @@ function pipeBodyToResponse(body, res) {
 
 // --- Model Limits from Regolo Config ---
 const DEFAULT_OUTPUT_LIMIT = 100000;
+let modelLimitsCache = { data: null, time: 0, ttl: 60000 };
 
 function getModelOutputLimit(modelId) {
   if (modelLimitsCache.data && modelLimitsCache.data[modelId] && modelLimitsCache.data[modelId].limit) {
